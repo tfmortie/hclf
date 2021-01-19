@@ -3,10 +3,11 @@ Code for hierarchical multi-class classifiers.
 Author: Thomas Mortier
 """
 import time
+import torch
 
 import numpy as np
 
-from utils import random_minority_oversampler
+from hclf.utils import random_minority_oversampler
 
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils.multiclass import unique_labels
@@ -14,20 +15,27 @@ from sklearn.utils import _message_with_time
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted, check_random_state
 from sklearn.exceptions import NotFittedError, FitFailedWarning
 from sklearn.metrics import accuracy_score
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
 
 from joblib import Parallel, delayed, parallel_backend
 
 class HSoftmax(BaseEstimator, ClassifierMixin):
     """Hierarchical softmax model.
+
     Parameters
     ----------
     phi : torch.nn.Module
         Represents the neural network architecture which learns the hidden representation
-        for the hierarchical softmax model.
+        for the hierarchical softmax model. Must be of type torch.nn.Module with output 
+        (batch_size, hidden_size).
     hidden_size : int
         Size of the hidden representation.
     lr : float
         Learning rate.
+    test_size : float, default=0.2
+        Size of internal validation set for training the hidden representations and hierarhical
+        softmax model.
     momentum : float, default=0
         Momentum factor. 
     weight_decay : float, default=0
@@ -50,6 +58,8 @@ class HSoftmax(BaseEstimator, ClassifierMixin):
         Number of training epochs.
     patience : int, default=5
         Patience counter for early stopping.
+    sep : str, default=";"
+        Character which separates levels for each path in y.
     n_jobs : int, default=None
         The number of jobs to run in parallel.   
     random_state : RandomState or an int seed, default=None
@@ -57,18 +67,14 @@ class HSoftmax(BaseEstimator, ClassifierMixin):
         random permutations generator.
     verbose : int, default=0
         Controls the verbosity: the higher, the more messages
-    Examples
-    --------
-    >>> from hclf.multiclass import HSoftmax
-    >>> import numpy as np
-    >>> TODO
     """
-    def __init__(self, phi, hidden_size, lr, momentum=0.0, weight_decay=0.0, 
+    def __init__(self, phi, hidden_size, lr, test_size=0.2, momentum=0.0, weight_decay=0.0, 
             dampening=0.0, nesterov=False, milestones=[3,8], gamma=0.1, dropout=0.0, 
-            gpu=1, batch_size=32, epochs=10, patience=5, n_jobs=None, random_state=None, verbose=0):
+            gpu=1, batch_size=32, epochs=10, patience=5, sep=";", n_jobs=None, random_state=None, verbose=0):
         self.phi = phi
         self.hidden_size = hidden_size
         self.lr = lr
+        self.test_size = test_size
         self.momentum = momentum
         self.weight_decay = weight_decay
         self.dampening = dampening
@@ -80,19 +86,121 @@ class HSoftmax(BaseEstimator, ClassifierMixin):
         self.batch_size = batch_size
         self.epochs = epochs
         self.patience = patience
+        self.sep = sep
         self.n_jobs = n_jobs
         self.random_state = random_state
         self.verbose = verbose
 
+    def _check_estimator(self):
+        # Check if phi is nn.torch
+        if not isinstance(self.phi, torch.nn.Module):
+            raise TypeError("Parameter phi must be of type toch.nn.Module.")
+        # Check int params
+        int_params = {"hidden_size": self.hidden_size,
+                "gpu": self.gpu,
+                "n_jobs": self.n_jobs}
+        for p in int_params.items():
+            if not p[1] is None:
+                if not isinstance(p[1], int):
+                    raise TypeError("Parameter {0} must be of type int.".format(p[0]))
+        # TODO do other checks
+
+    def _get_dataloader(self, X, y, batchsize):
+        # Construct tensors
+        X_tensor = torch.Tensor(X).float()
+        y_tensor = torch.Tensor(y).long()
+        return torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X_tensor, y_tensor),
+                shuffle=True,
+                sampler=None,
+                batch_size=batchsize)
+
+    def _get_accuracy(self, outputs, labels):
+        acc_t = torch.sum(labels==torch.argmax(outputs,dim=1))/(labels.size(0)*1.0)
+        return acc_t.item()
+
+    def _fit_phi(self):
+        # Create classifier
+        clf = torch.nn.Sequential(
+                self.phi,
+                torch.nn.Dropout(p=self.dropout),
+                torch.nn.Linear(self.hidden_size, len(self.classes_)))
+        # Split data in training and validation set 
+        X_train, X_val, y_train, y_val = train_test_split(self.X_, self.y_, 
+                test_size=self.test_size, stratify=self.y_, random_state=self.random_state)
+        # Encode labels 
+        lbl_to_int_enc = LabelEncoder()
+        y_train = lbl_to_int_enc.fit_transform(y_train)
+        y_val = lbl_to_int_enc.transform(y_val)
+        # Create dataloader instance for training and validation
+        dataloader_phi_train = self._get_dataloader(X_train, y_train, self.batch_size)
+        dataloader_phi_val = self._get_dataloader(X_val, y_val, self.batch_size)
+        # Define criterion
+        criterion = torch.nn.CrossEntropyLoss()
+        # Define optimizer
+        optimizer = torch.optim.SGD(clf.parameters(), 
+                lr=self.lr, 
+                momentum=self.momentum,
+                weight_decay=self.weight_decay,
+                nesterov=self.nesterov)
+        # Define scheduler
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=self.milestones, gamma=self.gamma) 
+        clf.to(self.device_)
+        best_loss, patience_cntr = None, 0
+        for epoch in range(self.epochs):
+            loss_tr = 0.0
+            # Run over training set
+            for batch_index, (X,y) in enumerate(dataloader_phi_train):
+                # Turn on training mode
+                clf.train()
+                # Zero the parameter gradients
+                optimizer.zero_grad()
+                X, y = X.to(self.device_), y.to(self.device_)
+                # Forward + backward + optimize
+                loss = criterion(clf(X), y)
+                loss.backward()
+                optimizer.step()
+                # Obtain average (over batch) loss
+                loss_tr += (loss.item()/X.shape[0])
+            # Run over validation set
+            clf.eval()
+            loss_vl, acc_vl = 0.0, 0.0
+            for batch_index, (X,y) in enumerate(dataloader_phi_val):
+                X, y = X.to(self.device_), y.to(self.device_)
+                # Forward pass and calculate statistics
+                outputs = clf(X)
+                loss = criterion(outputs, y)
+                loss_vl += (loss.item()/X.shape[0])
+                acc_vl += self._get_accuracy(outputs, y)
+            loss_tr, loss_vl, acc_vl = loss_tr/(batch_index+1), loss_vl/(batch_index+1), acc_vl/(batch_index+1)
+            if self.verbose >= 2:
+                print("[info] Epoch {0}, training loss = {1}, " 
+                        "validation loss = {2}, validation accuracy = {3}".format(epoch+1, loss_tr, loss_vl, acc_vl))
+            # Check if improvement
+            if best_loss is None:
+                best_loss = loss_vl
+            elif loss_vl < best_loss:
+                best_loss = loss_vl
+                patience_cntr = 0
+            else:
+                patience_cntr += 1
+            # Check if patience counter has exceeded
+            if patience_cntr >= self.patience:
+                if self.verbose >= 2: 
+                    print("[info] patience counter exceeded!")
+                break
+            scheduler.step()
+
     def fit(self, X, y):
         """Implementation of the fitting function for the hierarchical softmax classifier.
+        
         Parameters
         ----------
-        X : {array-like, sparse matrix}, shape (n_samples, n_features)
+        X : ndarray
             The training input samples.
         y : array-like, shape (n_samples,) 
-            The class labels, encoded as paths in a tree structure. Each node label is 
-            separated by a semicolon.
+            The class labels, encoded as paths in a tree structure. Each level is 
+            separated by self.sep.
+
         Returns
         -------
         self : object
@@ -100,23 +208,27 @@ class HSoftmax(BaseEstimator, ClassifierMixin):
         """
         self.random_state_ = check_random_state(self.random_state)
         # Check that X and y have correct shape
-        X, y = check_X_y(X, y, multi_output=False)
-        # Check if n_jobs is integer
-        if not self.n_jobs is None:
-            if not isinstance(self.n_jobs, int):
-                raise TypeError("Parameter n_jobs must be of type int.")
+        #X, y = check_X_y(X, y, multi_output=False) # check_X_y not compatible with PyTorch data...
+        # Check params
+        self._check_estimator()
         # Store the number of outputs, classes for each output and complete data seen during fit
         self.n_outputs_ = 1
         self.classes_ = unique_labels(y)
         self.X_ = X
         self.y_ = y
-        # Fit hierarchical model
+        # Get device type
+        self.device_ = torch.device('cuda:'+str(self.gpu) if torch.cuda.is_available() else 'cpu')
+        # Fit phi network
         start_time = time.time()
-        self.model_ = ...
+        self._fit_phi()
         stop_time = time.time()
         if self.verbose >= 1:
-            print(_message_with_time("HSoftmax", "fitting", stop_time-start_time))
-
+            print(_message_with_time("HSoftmax", "training hidden representations", stop_time-start_time))
+        # Fit hierarchical model
+        start_time = time.time()
+        stop_time = time.time()
+        if self.verbose >= 1:
+            print(_message_with_time("HSoftmax", "fitting hierarchical softmax", stop_time-start_time))
         return self
 
     def predict(self, X):
