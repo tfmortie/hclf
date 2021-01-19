@@ -23,7 +23,33 @@ class HSoftmax(BaseEstimator, ClassifierMixin):
     ----------
     phi : torch.nn.Module
         Represents the neural network architecture which learns the hidden representation
-        for the hierarchical softmax.
+        for the hierarchical softmax model.
+    hidden_size : int
+        Size of the hidden representation.
+    lr : float
+        Learning rate.
+    momentum : float, default=0
+        Momentum factor. 
+    weight_decay : float, default=0
+        Weight decay (L2 penalty).
+    dampening : float, default=0
+        Dampening for momentum.
+    nesterov : bool, default=False
+        Enables Nesterov momentum.
+    milestones : list, default=[3, 8]
+        List of epoch indices. Must be increasing.
+    gamma : float, default=0.1
+        Multiplicative factor of learning rate decay.
+    dropout : float, default=0
+        Dropout probability.
+    gpu : int, default=1
+        Index indicating the GPU device to use for network training.
+    batch_size : int, default=32
+        Batch size for network training.
+    epochs : int, default=10
+        Number of training epochs.
+    patience : int, default=5
+        Patience counter for early stopping.
     n_jobs : int, default=None
         The number of jobs to run in parallel.   
     random_state : RandomState or an int seed, default=None
@@ -37,8 +63,23 @@ class HSoftmax(BaseEstimator, ClassifierMixin):
     >>> import numpy as np
     >>> TODO
     """
-    def __init__(self, phi, n_jobs=None, random_state=None, verbose=0):
+    def __init__(self, phi, hidden_size, lr, momentum=0.0, weight_decay=0.0, 
+            dampening=0.0, nesterov=False, milestones=[3,8], gamma=0.1, dropout=0.0, 
+            gpu=1, batch_size=32, epochs=10, patience=5, n_jobs=None, random_state=None, verbose=0):
         self.phi = phi
+        self.hidden_size = hidden_size
+        self.lr = lr
+        self.momentum = momentum
+        self.weight_decay = weight_decay
+        self.dampening = dampening
+        self.nesterov = nesterov
+        self.milestones = milestones
+        self.gamma = gamma
+        self.dropout = dropout
+        self.gpu = gpu
+        self.batch_size = batch_size
+        self.epochs = epochs
+        self.patience = patience
         self.n_jobs = n_jobs
         self.random_state = random_state
         self.verbose = verbose
