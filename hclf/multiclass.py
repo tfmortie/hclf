@@ -1,13 +1,17 @@
 """
 Code for hierarchical multi-class classifiers.
 Author: Thomas Mortier
+
+TODO:
+    * documentation for LCPN
+    * clean up code for LCPN
 """
 import time
 import torch
 
 import numpy as np
 
-from hclf.utils import random_minority_oversampler
+from hclf.utils import _random_minority_oversampler, _get_dataloader, _get_accuracy
 
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils.multiclass import unique_labels
@@ -19,6 +23,51 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 
 from joblib import Parallel, delayed, parallel_backend
+
+class _HSModule(torch.nn.Module):
+    def __init__(self, tree_dict, module_list, sep):
+        super(_HSModule, self).__init__()
+        self.tree_dict = tree_dict
+        self.module_list = module_list
+        self.sep = sep
+
+    def forward(self, x, y=None):
+        outputs = []
+        if y is not None:
+            for idx, yi in enumerate(y):
+                output = []
+                for node in yi[:-1]:
+                    if self.module_list[self.tree_dict[node]["estimator"]] is not None: 
+                        output.append(self.module_list[self.tree_dict[node]["estimator"]](x)[idx])
+                    else:
+                        output.append([1.])
+                outputs.append(output)
+        else:
+            for idx in range(len(x)):
+                pred = "root"
+                pred_path = [pred]
+                while pred in self.tree_dict:
+                    curr_node = self.tree_dict[pred]
+                    # Check if we have a node with single path
+                    if self.module_list[curr_node["estimator"]] is not None:
+                        pred = curr_node["children"][torch.argmax(self.module_list[curr_node["estimator"]](x)[idx])]
+                    else: 
+                        pred = curr_node["children"][0]
+                    pred_path.append(pred)
+                outputs.append(self.sep.join(pred_path))        
+        return outputs
+ 
+class _HSLoss(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, input, target):
+        loss = torch.zeros(len(input)).to(input[0][0].get_device())
+        for idx, yi in enumerate(target):
+            for idy, lbl in enumerate(yi):
+                loss[idx] += input[idx][idy][lbl]
+        loss = loss.mean()
+        return loss
 
 class HSoftmax(BaseEstimator, ClassifierMixin):
     """Hierarchical softmax model.
@@ -90,6 +139,11 @@ class HSoftmax(BaseEstimator, ClassifierMixin):
         self.n_jobs = n_jobs
         self.random_state = random_state
         self.verbose = verbose
+        self.tree = _HSModule({"root": {
+                "lbl": "root",
+                "estimator": 0,
+                "children": [],
+                "parent": None}},torch.nn.ModuleList([None]),self.sep)
 
     def _check_estimator(self):
         # Check if phi is nn.torch
@@ -104,15 +158,6 @@ class HSoftmax(BaseEstimator, ClassifierMixin):
                 if not isinstance(p[1], int):
                     raise TypeError("Parameter {0} must be of type int.".format(p[0]))
         # TODO do other checks
-
-    def _get_dataloader(self, X, y, batchsize):
-        # Construct tensors
-        X_tensor = torch.Tensor(X).float()
-        y_tensor = torch.Tensor(y).long()
-        return torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X_tensor, y_tensor),
-                shuffle=True,
-                sampler=None,
-                batch_size=batchsize)
 
     def _get_accuracy(self, outputs, labels):
         acc_t = torch.sum(labels==torch.argmax(outputs,dim=1))/(labels.size(0)*1.0)
@@ -131,9 +176,6 @@ class HSoftmax(BaseEstimator, ClassifierMixin):
         lbl_to_int_enc = LabelEncoder()
         y_train = lbl_to_int_enc.fit_transform(y_train)
         y_val = lbl_to_int_enc.transform(y_val)
-        # Create dataloader instance for training and validation
-        dataloader_phi_train = self._get_dataloader(X_train, y_train, self.batch_size)
-        dataloader_phi_val = self._get_dataloader(X_val, y_val, self.batch_size)
         # Define criterion
         criterion = torch.nn.CrossEntropyLoss()
         # Define optimizer
@@ -148,6 +190,9 @@ class HSoftmax(BaseEstimator, ClassifierMixin):
         best_loss, patience_cntr = None, 0
         for epoch in range(self.epochs):
             loss_tr = 0.0
+            # Create dataloader instance for training and validation
+            dataloader_phi_train = _get_dataloader(X_train, y_train, self.batch_size, True, self.random_state)
+            dataloader_phi_val = _get_dataloader(X_val, y_val, self.batch_size, True, self.random_state)
             # Run over training set
             for batch_index, (X,y) in enumerate(dataloader_phi_train):
                 # Turn on training mode
@@ -170,7 +215,7 @@ class HSoftmax(BaseEstimator, ClassifierMixin):
                 outputs = clf(X)
                 loss = criterion(outputs, y)
                 loss_vl += (loss.item()/X.shape[0])
-                acc_vl += self._get_accuracy(outputs, y)
+                acc_vl += _get_accuracy(outputs, y)
             loss_tr, loss_vl, acc_vl = loss_tr/(batch_index+1), loss_vl/(batch_index+1), acc_vl/(batch_index+1)
             if self.verbose >= 2:
                 print("[info] Epoch {0}, training loss = {1}, " 
@@ -189,6 +234,108 @@ class HSoftmax(BaseEstimator, ClassifierMixin):
                     print("[info] patience counter exceeded!")
                 break
             scheduler.step()
+    
+    def _fit_tree(self):
+        # Split data in training and validation set 
+        X_train, X_val, y_train, y_val = train_test_split(self.X_, self.y_, 
+                test_size=self.test_size, stratify=self.y_, random_state=self.random_state)
+        # Define criterion
+        criterion = _HSLoss()
+        # Define optimizer
+        optimizer = torch.optim.SGD(self.tree.parameters(), 
+                lr=self.lr, 
+                momentum=self.momentum,
+                weight_decay=self.weight_decay,
+                nesterov=self.nesterov)
+        # Define scheduler
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=self.milestones, gamma=self.gamma) 
+        self.tree.to(self.device_)
+        best_loss, patience_cntr = None, 0
+        for epoch in range(self.epochs):
+            loss_tr = 0.0
+            # Create dataloader instance for training and validation
+            dataloader_phi_train = _get_dataloader(X_train, y_train, 
+                    self.batch_size, False, 
+                    self.random_state)
+            dataloader_phi_val = _get_dataloader(X_val, y_val, 
+                    self.batch_size, False, 
+                    self.random_state)
+            # Run over training set
+            for batch_index, (X,y) in enumerate(dataloader_phi_train):
+                # Turn on training mode
+                self.tree.train()
+                # Zero the parameter gradients
+                optimizer.zero_grad()
+                X = X.to(self.device_)
+                y = [yi.split(self.sep) for yi in y]
+                y_to_int = [[self.tree.tree_dict[node]["children"].index(lbl) for node,lbl in zip(yi[:-1],yi[1:])] for yi in y]
+                # Forward + backward + optimize
+                loss = criterion(self.tree(X, y), y_to_int)
+                loss.backward()
+                optimizer.step()
+                # Obtain average (over batch) loss
+                loss_tr += (loss.item()/X.shape[0])
+            # Run over validation set
+            self.tree.eval()
+            loss_vl, acc_vl = 0.0, 0.0
+            for batch_index, (X,y) in enumerate(dataloader_phi_val):
+                X = X.to(self.device_)
+                # Forward pass and calculate statistics
+                y = [yi.split(self.sep) for yi in y]
+                y_to_int = [[self.tree.tree_dict[node]["children"].index(lbl) for node,lbl in zip(yi[:-1],yi[1:])] for yi in y]
+                outputs = self.tree(X, y)
+                preds = self.tree(X)
+                loss = criterion(outputs, y_to_int)
+                loss_vl += (loss.item()/X.shape[0])
+                acc_vl += np.mean(np.array(y==preds))
+            loss_tr, loss_vl, acc_vl = loss_tr/(batch_index+1), loss_vl/(batch_index+1), acc_vl/(batch_index+1)
+            if self.verbose >= 2:
+                print("[info] Epoch {0}, training loss = {1}, " 
+                        "validation loss = {2}, validation accuracy = {3}".format(epoch+1, loss_tr, loss_vl, acc_vl))
+            # Check if improvement
+            if best_loss is None:
+                best_loss = loss_vl
+            elif loss_vl < best_loss:
+                best_loss = loss_vl
+                patience_cntr = 0
+            else:
+                patience_cntr += 1
+            # Check if patience counter has exceeded
+            if patience_cntr >= self.patience:
+                if self.verbose >= 2: 
+                    print("[info] patience counter exceeded!")
+                break
+            scheduler.step()
+    
+    def _add_path(self, path):
+        current_node = path[0]
+        add_node = path[1]
+        # Check if add_node is already registred
+        if add_node not in self.tree.tree_dict:
+            # Check if add_node is terminal
+            if len(path) > 2:
+                # Register add_node to the tree
+                self.tree.module_list.append(None)
+                self.tree.tree_dict[add_node] = {
+                    "lbl": add_node,
+                    "estimator": len(self.tree.module_list)-1,
+                    "children": [],
+                    "parent": current_node} 
+            # Add add_node to current_node's children (if not yet in list of children)
+            if add_node not in self.tree.tree_dict[current_node]["children"]:
+                self.tree.tree_dict[current_node]["children"].append(add_node)
+            # Set estimator when number of children for current_node is higher than 1
+            if len(self.tree.tree_dict[current_node]["children"]) > 1:
+                # Create classifier
+                estimator = torch.nn.Sequential(
+                        self.phi,
+                        torch.nn.Dropout(p=self.dropout),
+                        torch.nn.Linear(self.hidden_size, len(self.tree.tree_dict[current_node]["children"])))
+                self.tree.module_list[self.tree.tree_dict[current_node]["estimator"]] = estimator
+        # Process next couple of nodes in path
+        if len(path) > 2:
+            path = path[1:]
+            self._add_path(path)
 
     def fit(self, X, y):
         """Implementation of the fitting function for the hierarchical softmax classifier.
@@ -199,7 +346,7 @@ class HSoftmax(BaseEstimator, ClassifierMixin):
             The training input samples.
         y : array-like, shape (n_samples,) 
             The class labels, encoded as paths in a tree structure. Each level is 
-            separated by self.sep.
+            separated by `sep`.
 
         Returns
         -------
@@ -208,7 +355,8 @@ class HSoftmax(BaseEstimator, ClassifierMixin):
         """
         self.random_state_ = check_random_state(self.random_state)
         # Check that X and y have correct shape
-        #X, y = check_X_y(X, y, multi_output=False) # check_X_y not compatible with PyTorch data...
+        if X.shape[0]!=y.shape[0]:
+            raise TypeError("X and y should have equal length!")
         # Check params
         self._check_estimator()
         # Store the number of outputs, classes for each output and complete data seen during fit
@@ -221,11 +369,22 @@ class HSoftmax(BaseEstimator, ClassifierMixin):
         # Fit phi network
         start_time = time.time()
         self._fit_phi()
+        # Make sure that we freeze phi afterwards
+        for param in self.phi.parameters():
+            param.requires_grad = False
         stop_time = time.time()
         if self.verbose >= 1:
             print(_message_with_time("HSoftmax", "training hidden representations", stop_time-start_time))
         # Fit hierarchical model
         start_time = time.time()
+        # First init the tree 
+        try:
+            for lbl in self.y_:
+                self._add_path(lbl.split(self.sep))
+        except NotFittedError as e:
+            raise NotFittedError("Tree fitting failed! Make sure that the provided data is in the correct format.")
+        # And finally train the tree
+        self._fit_tree()
         stop_time = time.time()
         if self.verbose >= 1:
             print(_message_with_time("HSoftmax", "fitting hierarchical softmax", stop_time-start_time))
