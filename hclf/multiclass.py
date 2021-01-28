@@ -58,14 +58,17 @@ class _HSModule(torch.nn.Module):
         return outputs
  
 class _HSLoss(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, device):
         super().__init__()
+        self.ce_loss_ = torch.nn.CrossEntropyLoss()
+        self.device_ = device
 
     def forward(self, input, target):
-        loss = torch.zeros(len(input)).to(input[0][0].get_device())
+        loss = torch.zeros(len(input)).to(self.device_)
         for idx, yi in enumerate(target):
             for idy, lbl in enumerate(yi):
-                loss[idx] += input[idx][idy][lbl]
+                if len(input[idx][idy])>1:
+                    loss[idx] += self.ce_loss_(input[idx][idy].view(1,-1),torch.tensor([lbl]).to(self.device_))
         loss = loss.mean()
         return loss
 
@@ -240,7 +243,7 @@ class HSoftmax(BaseEstimator, ClassifierMixin):
         X_train, X_val, y_train, y_val = train_test_split(self.X_, self.y_, 
                 test_size=self.test_size, stratify=self.y_, random_state=self.random_state)
         # Define criterion
-        criterion = _HSLoss()
+        criterion = _HSLoss(self.device_)
         # Define optimizer
         optimizer = torch.optim.SGD(self.tree.parameters(), 
                 lr=self.lr, 
@@ -281,9 +284,9 @@ class HSoftmax(BaseEstimator, ClassifierMixin):
             for batch_index, (X,y) in enumerate(dataloader_phi_val):
                 X = X.to(self.device_)
                 # Forward pass and calculate statistics
-                y = [yi.split(self.sep) for yi in y]
-                y_to_int = [[self.tree.tree_dict[node]["children"].index(lbl) for node,lbl in zip(yi[:-1],yi[1:])] for yi in y]
-                outputs = self.tree(X, y)
+                y_split = [yi.split(self.sep) for yi in y]
+                y_to_int = [[self.tree.tree_dict[node]["children"].index(lbl) for node,lbl in zip(yi[:-1],yi[1:])] for yi in y_split]
+                outputs = self.tree(X, y_split)
                 preds = self.tree(X)
                 loss = criterion(outputs, y_to_int)
                 loss_vl += (loss.item()/X.shape[0])
