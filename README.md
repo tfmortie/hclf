@@ -51,6 +51,7 @@ X, y = ... # See below for more information wrt format labels
 clf = LCPN(LogisticRegression(random_state=0),
         oversample=True,
         min_size=10,
+        sep=";",
         n_jobs=4,
         random_state=0,
         verbose=1)
