@@ -74,4 +74,5 @@ Family2;Genus3;Species6
 ## References
 
 [1] A survey of hierarchical classiﬁcation across different application domains, Silla et al.
+
 [2] A Scalable Hierarchical Distributed Language Model, Mnih et al.
