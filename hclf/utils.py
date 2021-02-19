@@ -38,7 +38,3 @@ def _get_dataloader(X, y, batchsize, y_tensor=True, random_state=None):
 def _get_accuracy(outputs, labels):
     acc_t = torch.sum(labels==torch.argmax(outputs,dim=1))/(labels.size(0)*1.0)
     return acc_t.item()
-
-def _hse_loss(input, target):
-    print("To be implemented!")
-

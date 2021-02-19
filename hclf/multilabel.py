@@ -1,6 +1,10 @@
 """
-Code for hierarchical multi-label classifiers
+Code for hierarchical multi-label classifiers.
 Author: Thomas Mortier
+Date: Feb. 2021
+
+TODO:
+    * Make multi-label (i.e., remove normalisation at the end of the tree, etc.)
 """
 import os
 
@@ -185,7 +189,6 @@ class LCN(BaseEstimator, ClassifierMixin):
                             nodes_to_visit.append((self.tree[c], prob_child))
                 # normalize probs
                 prob = np.array(prob)
-                prob = prob/np.sum(prob)
                 probs.append(prob)
         except NotFittedError as e:
             print("This model is not fitted yet. Cal 'fit' \

@@ -1,10 +1,12 @@
 """
 Code for hierarchical multi-class classifiers.
 Author: Thomas Mortier
+Date: Feb. 2021
 
 TODO:
-    * documentation for LCPN
-    * clean up code for LCPN
+    * Improve runtime h-softmax
+    * Code cleanup (i.e., consistency between HSoftmax and LCPN)
+    * Doc
 """
 import time
 import torch
@@ -25,23 +27,33 @@ from sklearn.preprocessing import LabelEncoder
 from joblib import Parallel, delayed, parallel_backend
 
 class _HSModule(torch.nn.Module):
-    def __init__(self, tree_dict, module_list, sep):
+    def __init__(self, tree_dict, module_list, device, sep):
         super(_HSModule, self).__init__()
         self.tree_dict = tree_dict
         self.module_list = module_list
+        self.device = device
         self.sep = sep
-
+        self.ce_loss = torch.nn.CrossEntropyLoss()
+ 
     def forward(self, x, y=None):
         outputs = []
+        loss = None
         if y is not None:
+            loss = torch.zeros(len(x)).to(self.device)
             for idx, yi in enumerate(y):
                 output = []
-                for node in yi[:-1]:
-                    if self.module_list[self.tree_dict[node]["estimator"]] is not None: 
-                        output.append(self.module_list[self.tree_dict[node]["estimator"]](x)[idx])
+                for idy, node in enumerate(yi[:-1]):
+                    node_dict = self.tree_dict[node]
+                    est = self.module_list[node_dict["estimator"]]
+                    if est is not None: 
+                        z = est(x)[idx]
+                        output.append(z)
+                        lbl = node_dict["children"].index(yi[idy+1])
+                        loss[idx] += self.ce_loss(z.view(1,-1),torch.tensor([lbl]).to(self.device))
                     else:
                         output.append([1.])
                 outputs.append(output)
+            loss = loss.mean()
         else:
             for idx in range(len(x)):
                 pred = "root"
@@ -55,23 +67,8 @@ class _HSModule(torch.nn.Module):
                         pred = curr_node["children"][0]
                     pred_path.append(pred)
                 outputs.append(self.sep.join(pred_path))        
-        return outputs
+        return outputs, loss
  
-class _HSLoss(torch.nn.Module):
-    def __init__(self, device):
-        super().__init__()
-        self.ce_loss_ = torch.nn.CrossEntropyLoss()
-        self.device_ = device
-
-    def forward(self, input, target):
-        loss = torch.zeros(len(input)).to(self.device_)
-        for idx, yi in enumerate(target):
-            for idy, lbl in enumerate(yi):
-                if len(input[idx][idy])>1:
-                    loss[idx] += self.ce_loss_(input[idx][idy].view(1,-1),torch.tensor([lbl]).to(self.device_))
-        loss = loss.mean()
-        return loss
-
 class HSoftmax(BaseEstimator, ClassifierMixin):
     """Hierarchical softmax model.
 
@@ -142,11 +139,6 @@ class HSoftmax(BaseEstimator, ClassifierMixin):
         self.n_jobs = n_jobs
         self.random_state = random_state
         self.verbose = verbose
-        self.tree = _HSModule({"root": {
-                "lbl": "root",
-                "estimator": 0,
-                "children": [],
-                "parent": None}},torch.nn.ModuleList([None]),self.sep)
 
     def _check_estimator(self):
         # Check if phi is nn.torch
@@ -160,7 +152,7 @@ class HSoftmax(BaseEstimator, ClassifierMixin):
             if not p[1] is None:
                 if not isinstance(p[1], int):
                     raise TypeError("Parameter {0} must be of type int.".format(p[0]))
-        # TODO do other checks
+        # TODO: implement other checks
 
     def _get_accuracy(self, outputs, labels):
         acc_t = torch.sum(labels==torch.argmax(outputs,dim=1))/(labels.size(0)*1.0)
@@ -242,17 +234,15 @@ class HSoftmax(BaseEstimator, ClassifierMixin):
         # Split data in training and validation set 
         X_train, X_val, y_train, y_val = train_test_split(self.X_, self.y_, 
                 test_size=self.test_size, stratify=self.y_, random_state=self.random_state)
-        # Define criterion
-        criterion = _HSLoss(self.device_)
         # Define optimizer
-        optimizer = torch.optim.SGD(self.tree.parameters(), 
+        optimizer = torch.optim.SGD(self.tree_.parameters(), 
                 lr=self.lr, 
                 momentum=self.momentum,
                 weight_decay=self.weight_decay,
                 nesterov=self.nesterov)
         # Define scheduler
         scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=self.milestones, gamma=self.gamma) 
-        self.tree.to(self.device_)
+        self.tree_.to(self.device_) # TODO: check whether necessary
         best_loss, patience_cntr = None, 0
         for epoch in range(self.epochs):
             loss_tr = 0.0
@@ -265,30 +255,28 @@ class HSoftmax(BaseEstimator, ClassifierMixin):
                     self.random_state)
             # Run over training set
             for batch_index, (X,y) in enumerate(dataloader_phi_train):
+                start_time = time.time()
                 # Turn on training mode
-                self.tree.train()
+                self.tree_.train()
                 # Zero the parameter gradients
                 optimizer.zero_grad()
                 X = X.to(self.device_)
                 y = [yi.split(self.sep) for yi in y]
-                y_to_int = [[self.tree.tree_dict[node]["children"].index(lbl) for node,lbl in zip(yi[:-1],yi[1:])] for yi in y]
                 # Forward + backward + optimize
-                loss = criterion(self.tree(X, y), y_to_int)
+                _, loss = self.tree_(X, y)
                 loss.backward()
                 optimizer.step()
                 # Obtain average (over batch) loss
                 loss_tr += (loss.item()/X.shape[0])
             # Run over validation set
-            self.tree.eval()
+            self.tree_.eval()
             loss_vl, acc_vl = 0.0, 0.0
             for batch_index, (X,y) in enumerate(dataloader_phi_val):
                 X = X.to(self.device_)
                 # Forward pass and calculate statistics
                 y_split = [yi.split(self.sep) for yi in y]
-                y_to_int = [[self.tree.tree_dict[node]["children"].index(lbl) for node,lbl in zip(yi[:-1],yi[1:])] for yi in y_split]
-                outputs = self.tree(X, y_split)
-                preds = self.tree(X)
-                loss = criterion(outputs, y_to_int)
+                _, loss = self.tree_(X, y_split)
+                preds, _ = self.tree_(X)
                 loss_vl += (loss.item()/X.shape[0])
                 acc_vl += np.mean(np.array(y==preds))
             loss_tr, loss_vl, acc_vl = loss_tr/(batch_index+1), loss_vl/(batch_index+1), acc_vl/(batch_index+1)
@@ -314,27 +302,27 @@ class HSoftmax(BaseEstimator, ClassifierMixin):
         current_node = path[0]
         add_node = path[1]
         # Check if add_node is already registred
-        if add_node not in self.tree.tree_dict:
+        if add_node not in self.tree_.tree_dict:
             # Check if add_node is terminal
             if len(path) > 2:
                 # Register add_node to the tree
-                self.tree.module_list.append(None)
-                self.tree.tree_dict[add_node] = {
+                self.tree_.module_list.append(None)
+                self.tree_.tree_dict[add_node] = {
                     "lbl": add_node,
-                    "estimator": len(self.tree.module_list)-1,
+                    "estimator": len(self.tree_.module_list)-1,
                     "children": [],
                     "parent": current_node} 
             # Add add_node to current_node's children (if not yet in list of children)
-            if add_node not in self.tree.tree_dict[current_node]["children"]:
-                self.tree.tree_dict[current_node]["children"].append(add_node)
+            if add_node not in self.tree_.tree_dict[current_node]["children"]:
+                self.tree_.tree_dict[current_node]["children"].append(add_node)
             # Set estimator when number of children for current_node is higher than 1
-            if len(self.tree.tree_dict[current_node]["children"]) > 1:
+            if len(self.tree_.tree_dict[current_node]["children"]) > 1:
                 # Create classifier
                 estimator = torch.nn.Sequential(
                         self.phi,
                         torch.nn.Dropout(p=self.dropout),
-                        torch.nn.Linear(self.hidden_size, len(self.tree.tree_dict[current_node]["children"])))
-                self.tree.module_list[self.tree.tree_dict[current_node]["estimator"]] = estimator
+                        torch.nn.Linear(self.hidden_size, len(self.tree_.tree_dict[current_node]["children"])))
+                self.tree_.module_list[self.tree_.tree_dict[current_node]["estimator"]] = estimator
         # Process next couple of nodes in path
         if len(path) > 2:
             path = path[1:]
@@ -369,6 +357,12 @@ class HSoftmax(BaseEstimator, ClassifierMixin):
         self.y_ = y
         # Get device type
         self.device_ = torch.device('cuda:'+str(self.gpu) if torch.cuda.is_available() else 'cpu')
+        # Construct tree
+        self.tree_ = _HSModule({"root": {
+                "lbl": "root",
+                "estimator": 0,
+                "children": [],
+                "parent": None}},torch.nn.ModuleList([None]),self.device_,self.sep)
         # Fit phi network
         start_time = time.time()
         self._fit_phi()
@@ -408,18 +402,17 @@ class HSoftmax(BaseEstimator, ClassifierMixin):
         X = check_array(X)
         start_time = time.time()
         try:
-            preds = p.predict(self, X)
+            # TODO
+            print("TODO")
         except NotFittedError as e:
             print("This model is not fitted yet. Cal 'fit' \
                     with appropriate arguments before using this \
                     method.")
         stop_time = time.time()
         if self.verbose >= 1:
-            print(_message_with_time("UAClassifier", "predicting", stop_time-start_time))
-        if avg:
-            return np.apply_along_axis(u.get_most_common_el, 1, preds)
+            print(_message_with_time("HSoftmax", "predicting", stop_time-start_time))
 
-        return preds
+        return "Not implemented yet!"
 
     def predict_proba(self, X):
         """Return probability estimates.
@@ -437,6 +430,7 @@ class HSoftmax(BaseEstimator, ClassifierMixin):
         X = check_array(X)
         start_time = time.time()
         try:
+            # TODO
             print("TODO")
         except NotFittedError as e:
             print("This model is not fitted yet. Cal 'fit' with \
@@ -471,6 +465,7 @@ class HSoftmax(BaseEstimator, ClassifierMixin):
         X, y = check_X_y(X, y, multi_output=True)
         start_time = time.time()
         try:
+            # TODO
             print("TODO")
         except NotFittedError as e:
             print("This model is not fitted yet. Cal 'fit' \
@@ -513,7 +508,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
             X_transform = self.X_[sel_ind,:]
             # check if we need to apply oversample
             if self.oversample:
-                X_train, y_train = randomMinorityOversampler(X_transform, 
+                X_train, y_train = _random_minority_oversampler(X_transform, 
                         y_transform, 
                         min_size=self.min_size)
                 node["estimator"].fit(X_train, y_train)
@@ -610,7 +605,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
                     method.")
         stop_time = time.time()
         if self.verbose >= 1:
-            print(_message_with_time("LCPNClassifier", "predicting", stop_time-start_time))
+            print(_message_with_time("LCPN", "predicting", stop_time-start_time))
         return np.array(preds)
 
     def predict_proba(self, X):
@@ -722,7 +717,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
                                 method.")
         stop_time = time.time()
         if self.verbose >= 1:
-            print(_message_with_time("LCPNClassifier", "calculating tree score", stop_time-start_time))
+            print(_message_with_time("LCPN", "calculating tree score", stop_time-start_time))
         return score_dict
 
     def addPath(self, path):
