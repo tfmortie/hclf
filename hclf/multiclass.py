@@ -4,6 +4,7 @@ Author: Thomas Mortier
 Date: Feb. 2021
 
 TODO:
+    * Delete requirement of root
     * Improve runtime h-softmax
     * Code cleanup (i.e., consistency between HSoftmax and LCPN)
     * Doc
