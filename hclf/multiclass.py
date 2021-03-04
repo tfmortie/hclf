@@ -26,6 +26,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 
 from joblib import Parallel, delayed, parallel_backend
+from collections import ChainMap
 
 class _HSModule(torch.nn.Module):
     def __init__(self, tree_dict, module_list, device, sep):
@@ -580,26 +581,37 @@ class LCPN(BaseEstimator, ClassifierMixin):
             print(_message_with_time("LCPN", "fitting", stop_time-start_time))
         return self
  
+    def _predict(self, i, X):
+        preds = []
+        # run over all samples
+        for i,x in enumerate(X):
+            x = x.reshape(1,-1)
+            pred = "root"
+            pred_path = [pred]
+            while pred in self.tree:
+                curr_node = self.tree[pred]
+                # check if we have a node with single path
+                if curr_node["estimator"] is not None:
+                    pred = curr_node["estimator"].predict(x)[0]
+                else: 
+                    pred = curr_node["children"][0]
+                pred_path.append(pred)
+            preds.append(self.sep.join(pred_path))
+        return {i: preds}
+    
     def predict(self, X):
         # check input
         X = check_array(X)
         preds = []
         start_time = time.time()
         try:
-            # run over all samples
-            for x in X:
-                x = x.reshape(1,-1)
-                pred = "root"
-                pred_path = [pred]
-                while pred in self.tree:
-                    curr_node = self.tree[pred]
-                    # check if we have a node with single path
-                    if curr_node["estimator"] is not None:
-                        pred = curr_node["estimator"].predict(x)[0]
-                    else: 
-                        pred = curr_node["children"][0]
-                    pred_path.append(pred)
-                preds.append(self.sep.join(pred_path))
+            # now proceed to predicting
+            with parallel_backend("loky", inner_max_num_threads=1):
+                d_preds = Parallel(n_jobs=self.n_jobs)(delayed(self._predict)(i,X[ind]) for i,ind in enumerate(np.array_split(range(X.shape[0]), self.n_jobs)))
+            # collect predictions
+            preds_dict = dict(ChainMap(*d_preds))
+            for k in np.sort(list(preds_dict.keys())):
+                preds.extend(preds_dict[k])
         except NotFittedError as e:
             print("This model is not fitted yet. Cal 'fit' \
                     with appropriate arguments before using this \
@@ -607,7 +619,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
         stop_time = time.time()
         if self.verbose >= 1:
             print(_message_with_time("LCPN", "predicting", stop_time-start_time))
-        return np.array(preds)
+        return preds
 
     def predict_proba(self, X):
         # check input
