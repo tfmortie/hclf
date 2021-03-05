@@ -26,8 +26,6 @@ from sklearn.linear_model import LogisticRegression
 X, y = ... # See below for more information wrt format labels
 # Construct a LCPN classifier
 clf = LCPN(LogisticRegression(random_state=0),
-        oversample=True,
-        min_size=10,
         sep=";",
         n_jobs=4,
         random_state=0,

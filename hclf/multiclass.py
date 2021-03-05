@@ -4,13 +4,11 @@ Author: Thomas Mortier
 Date: Feb. 2021
 
 TODO:
-    * Improve Doc
+    * Doc
 """
 import time
 
 import numpy as np
-
-from hclf.utils import _random_minority_oversampler
 
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils import _message_with_time
@@ -22,10 +20,8 @@ from joblib import Parallel, delayed, parallel_backend
 from collections import ChainMap
 
 class LCPN(BaseEstimator, ClassifierMixin):
-    def __init__(self, estimator, oversample=False, min_size=10, sep=";", n_jobs=None, random_state=None, verbose=0):
+    def __init__(self, estimator, sep=";", n_jobs=None, random_state=None, verbose=0):
         self.estimator = estimator
-        self.oversample = oversample
-        self.min_size = min_size
         self.sep = sep
         self.n_jobs = n_jobs
         self.random_state = random_state
@@ -54,14 +50,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
                             y_transform.append(y_split[y_split.index(node["lbl"])+1])
                             sel_ind.append(i)
             X_transform = self.X_[sel_ind,:]
-            # check if we need to apply oversample
-            if self.oversample:
-                X_train, y_train = _random_minority_oversampler(X_transform, 
-                        y_transform, 
-                        min_size=self.min_size)
-                node["estimator"].fit(X_train, y_train)
-            else:
-                node["estimator"].fit(X_transform, y_transform)
+            node["estimator"].fit(X_transform, y_transform)
             if self.verbose >= 2:
                 print("Model {0} fitted!".format(node["lbl"]))
             # now make sure that the order of labels correspond to the order of children
