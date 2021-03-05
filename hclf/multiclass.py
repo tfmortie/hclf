@@ -297,18 +297,3 @@ class LCPN(BaseEstimator, ClassifierMixin):
                 if len(self.tree[current_node]["children"]) > 1:
                     self.tree[current_node]["estimator"] = type(self.estimator)(**self.estimator.get_params())
             current_node = add_node
- 
-    def __str__(self):
-        # calculate number of leaves 
-        num_leaves = 0
-        for n in self.tree:
-            for c in self.tree[n]["children"]:
-                if c not in self.tree:
-                    num_leaves += 1
-        tree_str = "---------------------------------------\n"
-        tree_str += "Number of internal nodes = {0}".format(len(self.tree))
-        tree_str += '\n'
-        tree_str += "Number of leaves = {0}".format(num_leaves)
-        tree_str += '\n'
-        tree_str += "---------------------------------------\n"
-        return tree_str
