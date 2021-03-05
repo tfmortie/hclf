@@ -1,6 +1,6 @@
 # Hierarchical Classification
 
-**hclf** is a Python module for hierarchical classification. Currently, the module supports the following models, built on top of sckikit-learn with support for all probabilistic base classifiers: local classifier per parent node (LCPN) for multi-class classification and local classifier per node (LCN) for multi-label classification. **Important: work in progress**
+**hclf** is a Python module for hierarchical classification, built on top of scikit-learn. Currently, there is support for the following models: local classifier per parent node (LCPN) for multi-class classification and local classifier per node (LCN) for multi-label classification. **Important: work in progress**
 
 ## Installation 
 
