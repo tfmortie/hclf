@@ -4,11 +4,13 @@ Author: Thomas Mortier
 Date: Feb. 2021
 
 TODO:
-    * Doc
+    * Add doc
 """
 import time
 
 import numpy as np
+
+from hclf.utils import HLabelEncoder
 
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils import _message_with_time
@@ -20,9 +22,10 @@ from joblib import Parallel, delayed, parallel_backend
 from collections import ChainMap
 
 class LCPN(BaseEstimator, ClassifierMixin):
-    def __init__(self, estimator, sep=";", n_jobs=None, random_state=None, verbose=0):
+    def __init__(self, estimator, sep=";", k=2, n_jobs=None, random_state=None, verbose=0):
         self.estimator = estimator
         self.sep = sep
+        self.k = k
         self.n_jobs = n_jobs
         self.random_state = random_state
         self.verbose = verbose
@@ -31,6 +34,28 @@ class LCPN(BaseEstimator, ClassifierMixin):
                 "estimator": None,
                 "children": [],
                 "parent": None}}
+    
+    def _add_path(self, path):
+        current_node = "root"
+        for i in range(len(path)):
+            add_node = path[i]
+            # check if add_node is already registred
+            if add_node not in self.tree:
+                # check if add_node is terminal
+                if i < len(path)-1:
+                    # register add_node to the tree
+                    self.tree[add_node] = {
+                        "lbl": add_node,
+                        "estimator": None,
+                        "children": [],
+                        "parent": current_node} 
+                # add add_node to current_node's children (if not yet in list of children)
+                if add_node not in self.tree[current_node]["children"]:
+                    self.tree[current_node]["children"].append(add_node)
+                # set estimator when num. of children for current_node is higher than 1
+                if len(self.tree[current_node]["children"]) > 1:
+                    self.tree[current_node]["estimator"] = type(self.estimator)(**self.estimator.get_params())
+            current_node = add_node
 
     def _fit_node(self, node):
         # check if node has estimator
@@ -56,7 +81,6 @@ class LCPN(BaseEstimator, ClassifierMixin):
             # now make sure that the order of labels correspond to the order of children
             node["children"] = node["estimator"].classes_
         return {node["lbl"]: node}
-
         
     def fit(self, X, y):
         self.random_state_ = check_random_state(self.random_state)
@@ -70,12 +94,22 @@ class LCPN(BaseEstimator, ClassifierMixin):
         self.n_outputs_ = 1
         self.X_ = X
         self.y_ = y
+        # check if sep is None or str
+        if type(self.sep) != str and self.sep is not None:
+            raise TypeError("Parameter sep must be of type str or None.")
         # init and fit the hierarchical model
         start_time = time.time()
         # first init the tree 
         try:
+            if self.sep is None:
+                # transform labels to labels in some random hierarchy
+                self.sep = ';'
+                self.label_encoder_ = HLabelEncoder(k=self.k,random_state=self.random_state_)
+                self.y_ = self.label_encoder_.fit_transform(self.y_) 
+            else:
+                self.label_encoder_ = None
             for lbl in self.y_:
-                self.addPath(lbl.split(self.sep))
+                self._add_path(lbl.split(self.sep))
             # now proceed to fitting
             with parallel_backend("loky", inner_max_num_threads=1):
                 fitted_tree = Parallel(n_jobs=self.n_jobs)(delayed(self._fit_node)(self.tree[node]) for node in self.tree)
@@ -95,6 +129,9 @@ class LCPN(BaseEstimator, ClassifierMixin):
                     # add child to nodes_to_visit
                     nodes_to_visit.append(self.tree[c])
         self.classes_ = cls
+        # backtransform the encoded labels, in case of no predefined hierarchy
+        if self.label_encoder_ is not None:
+            self.classes_ = self.label_encoder_.inverse_transform(self.classes_)
         stop_time = time.time()
         if self.verbose >= 1:
             print(_message_with_time("LCPN", "fitting", stop_time-start_time))
@@ -131,6 +168,9 @@ class LCPN(BaseEstimator, ClassifierMixin):
             preds_dict = dict(ChainMap(*d_preds))
             for k in np.sort(list(preds_dict.keys())):
                 preds.extend(preds_dict[k])
+            # in case of no predefined hierarchy, backtransform to original labels
+            if self.label_encoder_ is not None:
+                preds = self.label_encoder_.inverse_transform([p.split(self.sep)[-1] for p in preds])
         except NotFittedError as e:
             print("This model is not fitted yet. Cal 'fit' \
                     with appropriate arguments before using this \
@@ -264,25 +304,3 @@ class LCPN(BaseEstimator, ClassifierMixin):
         if self.verbose >= 1:
             print(_message_with_time("LCPN", "calculating tree score", stop_time-start_time))
         return score_dict
-
-    def addPath(self, path):
-        current_node = "root"
-        for i in range(len(path)):
-            add_node = path[i]
-            # check if add_node is already registred
-            if add_node not in self.tree:
-                # check if add_node is terminal
-                if i < len(path)-1:
-                    # register add_node to the tree
-                    self.tree[add_node] = {
-                        "lbl": add_node,
-                        "estimator": None,
-                        "children": [],
-                        "parent": current_node} 
-                # add add_node to current_node's children (if not yet in list of children)
-                if add_node not in self.tree[current_node]["children"]:
-                    self.tree[current_node]["children"].append(add_node)
-                # set estimator when num. of children for current_node is higher than 1
-                if len(self.tree[current_node]["children"]) > 1:
-                    self.tree[current_node]["estimator"] = type(self.estimator)(**self.estimator.get_params())
-            current_node = add_node
