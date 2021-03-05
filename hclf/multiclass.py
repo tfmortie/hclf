@@ -4,7 +4,6 @@ Author: Thomas Mortier
 Date: Feb. 2021
 
 TODO:
-    * Delete requirement of root
     * Improve Doc
 """
 import time
@@ -69,22 +68,6 @@ class LCPN(BaseEstimator, ClassifierMixin):
             node["children"] = node["estimator"].classes_
         return {node["lbl"]: node}
 
-    def _predict_proba(self, estimator, x, scores=False):
-        if not scores:
-            return estimator.predict_proba(x)
-        else:
-            # get scores
-            scores = estimator.decision_function(x)
-            scores = np.exp(scores)
-            # check if we only have one score (ie, when K=2)
-            if len(scores.shape) == 2:
-                # softmax evaluation
-                scores = scores/np.sum(scores)
-            else:
-                # sigmoid evaluation
-                scores = 1/(1+np.exp(-scores[0]))
-                scores = np.array([[1-scores, scores]])
-            return scores
         
     def fit(self, X, y):
         self.random_state_ = check_random_state(self.random_state)
@@ -167,7 +150,25 @@ class LCPN(BaseEstimator, ClassifierMixin):
         if self.verbose >= 1:
             print(_message_with_time("LCPN", "predicting", stop_time-start_time))
         return preds
-
+     
+    def _predict_proba(self, estimator, X, scores=False):
+        if not scores:
+            return estimator.predict_proba(X)
+        else:
+            # get scores
+            scores = estimator.decision_function(X)
+            scores = np.exp(scores)
+            # check if we only have one score (ie, when K=2)
+            if len(scores.shape) == 2:
+                # softmax evaluation
+                scores = scores/np.sum(scores,axis=1).reshape(scores.shape[0],1)
+            else:
+                # sigmoid evaluation
+                scores = 1/(1+np.exp(-scores))
+                scores = scores.reshape(-1,1)
+                scores = np.hstack([1-scores,scores])
+            return scores
+    
     def predict_proba(self, X):
         # check input
         X = check_array(X)
@@ -183,36 +184,31 @@ class LCPN(BaseEstimator, ClassifierMixin):
             else:
                 scores = True
         try:
-            # run over all samples
-            for x in X:
-                x = x.reshape(1,-1)
-                nodes_to_visit = [(self.tree["root"], 1.)]
-                prob = []
-                while len(nodes_to_visit) > 0:
-                    curr_node, parent_prob = nodes_to_visit.pop()
-                    # check if we have a node with single path
-                    if curr_node["estimator"] is not None:
-                        # get probabilities 
-                        curr_node_probs = self._predict_proba(curr_node["estimator"], x, scores)
-                        for i,c in enumerate(curr_node["children"]):
-                            # apply chain rule of probability
-                            prob_child = curr_node_probs[0,i]*parent_prob
-                            # check if child is leaf node 
-                            if c not in self.tree:
-                                prob.append(prob_child)
-                            else:
-                                # add child to nodes_to_visit
-                                nodes_to_visit.append((self.tree[c],prob_child))
-                    else:
-                        prob_child = 1*parent_prob
-                        c = curr_node["children"][0]
+            nodes_to_visit = [(self.tree["root"], np.ones((X.shape[0],1)))]
+            while len(nodes_to_visit) > 0:
+                curr_node, parent_prob = nodes_to_visit.pop()
+                # check if we have a node with single path
+                if curr_node["estimator"] is not None:
+                    # get probabilities 
+                    curr_node_probs = self._predict_proba(curr_node["estimator"], X, scores)
+                    # apply chain rule of probability
+                    curr_node_probs = curr_node_probs*parent_prob
+                    for i,c in enumerate(curr_node["children"]):
                         # check if child is leaf node 
+                        prob_child = curr_node_probs[:,i].reshape(-1,1)
                         if c not in self.tree:
-                            prob.append(prob_child)
+                            probs.append(prob_child)
                         else:
                             # add child to nodes_to_visit
                             nodes_to_visit.append((self.tree[c],prob_child))
-                probs.append(prob)
+                else:
+                    c = curr_node["children"][0]
+                    # check if child is leaf node 
+                    if c not in self.tree:
+                        probs.append(parent_prob)
+                    else:
+                        # add child to nodes_to_visit
+                        nodes_to_visit.append((self.tree[c],parent_prob))
         except NotFittedError as e:
             print("This model is not fitted yet. Cal 'fit' \
                     with appropriate arguments before using this \
@@ -220,7 +216,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
         stop_time = time.time()
         if self.verbose >= 1:
             print(_message_with_time("LCPN", "predicting probabilities", stop_time-start_time))
-        return np.array(probs)
+        return np.hstack(probs)
 
     def score(self, X, y):
         # check input and outputs
