@@ -18,8 +18,6 @@ Following modules are required:
 ## Basic usage
 
 ```python
-import numpy as np
-
 from hclf.multiclass import LCPN
 from sklearn.linear_model import LogisticRegression
 

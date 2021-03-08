@@ -3,7 +3,6 @@ Some important functions and classes that are used throughout the module.
 Author: Thomas Mortier
 
 TODO:
-    * Doc 
     * Improve random state for random hierarchy (shuffle + k)
 """
 import random
@@ -19,16 +18,19 @@ class HLabelEncoder(TransformerMixin, BaseEstimator):
 
     Parameters
     ----------
-        k : max number of children a node can have in the tree.
-        sep : string used for path encodings.
-        random_state : RandomState or an int seed, default=None
-            A random number generator instance to define the state of the
-            random permutations generator.
+    k : int, default=2 
+        Max number of children a node can have in the random generated tree. Is ignored when
+        sep is set to None.
+    sep : str, default=';'
+        string used for path encodings.
+    random_state : RandomState or an int seed, default=None
+        A random number generator instance to define the state of the
+        random permutations generator.
  
     Examples
     --------
     """
-    def __init__(self, k=2, sep=";", random_state=None):
+    def __init__(self, k=2, sep=';', random_state=None):
         self.k = k
         self.sep = sep
         self.random_state = random_state

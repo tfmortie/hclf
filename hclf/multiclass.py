@@ -3,8 +3,9 @@ Code for hierarchical multi-class classifiers.
 Author: Thomas Mortier
 Date: Feb. 2021
 
-TODO:
-    * Add doc
+TODO: 
+    * Fix issue with root -> CH -> ... situations
+    * Improve runtime for score_nodes
 """
 import time
 
@@ -22,7 +23,42 @@ from joblib import Parallel, delayed, parallel_backend
 from collections import ChainMap
 
 class LCPN(BaseEstimator, ClassifierMixin):
-    def __init__(self, estimator, sep=";", k=2, n_jobs=None, random_state=None, verbose=0):
+    """Local classifier per parent node (LCPN) classifier.
+
+    Parameters
+    ----------
+    estimator : scikit-learn base estimator
+        Represents the base estimator for the classification task in a given node.
+    sep : str, default=';'
+        Path separator used for processing the hierarchical labels. If set to None,
+        a random hierarchy is learned and the provided flat labels will be converted,
+        respectively.
+    k : int, default=2 
+        Max number of children a node can have in the random generated tree. Is ignored when
+        sep is set to None.
+    n_jobs : int, default=None
+        The number of jobs to run in parallel. Currently this applies to fit, 
+        and predict.  
+    random_state : RandomState or an int seed, default=None
+        A random number generator instance to define the state of the
+        random permutations generator.
+    verbose : int, default=0
+        Controls the verbosity: the higher, the more messages
+
+    Examples
+    --------
+    >>> from hclf.multiclass import LCPN
+    >>> from sklearn.linear_model import LogisticRegression
+    >>> 
+    >>> clf = LCPN(LogisticRegression(random_state=0),
+    >>>         sep=";",
+    >>>         n_jobs=4,
+    >>>         random_state=0,
+    >>>         verbose=1)
+    >>> clf.fit(X, y)
+    >>> clf.score(X, y)
+    """
+    def __init__(self, estimator, sep=';', k=2, n_jobs=None, random_state=None, verbose=0):
         self.estimator = estimator
         self.sep = sep
         self.k = k
@@ -83,6 +119,20 @@ class LCPN(BaseEstimator, ClassifierMixin):
         return {node["lbl"]: node}
         
     def fit(self, X, y):
+        """Implementation of the fitting function for the LCPN classifier.
+
+        Parameters
+        ----------
+        X : {array-like, sparse matrix}, shape (n_samples, n_features)
+            The training input samples.
+        y : array-like, shape (n_samples,) or (n_samples, n_outputs)
+            The class labels
+
+        Returns
+        -------
+        self : object
+            Returns self.
+        """
         self.random_state_ = check_random_state(self.random_state)
         # need to make sure that X and y have the correct shape
         X, y = check_X_y(X, y, multi_output=False) # multi-output not supported (yet)
@@ -156,6 +206,20 @@ class LCPN(BaseEstimator, ClassifierMixin):
         return {i: preds}
     
     def predict(self, X):
+        """Return class predictions.
+
+        Parameters
+        ----------
+        X : {array-like, sparse matrix}, shape (n_samples, n_features)
+            Input samples.
+        avg : boolean, default=True
+            Return model average when true, and array of predictions otherwise.
+
+        Returns
+        -------
+        preds : ndarray
+            Returns an array of predicted class labels.
+        """
         # check input
         X = check_array(X)
         preds = []
@@ -172,7 +236,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
             if self.label_encoder_ is not None:
                 preds = self.label_encoder_.inverse_transform([p.split(self.sep)[-1] for p in preds])
         except NotFittedError as e:
-            print("This model is not fitted yet. Cal 'fit' \
+            raise NotFittedError("This model is not fitted yet. Cal 'fit' \
                     with appropriate arguments before using this \
                     method.")
         stop_time = time.time()
@@ -199,6 +263,24 @@ class LCPN(BaseEstimator, ClassifierMixin):
             return scores
     
     def predict_proba(self, X):
+        """Return probability estimates.
+
+        Important: the returned estimates for all classes are ordered by the
+        label of classes.
+
+        Parameters
+        ----------
+        X : {array-like, sparse matrix}, shape (n_samples, n_features)
+            Input samples.
+        avg : boolean, default=True
+            Return model average when true, and array of probability estimates otherwise.
+
+        Returns
+        -------
+        probs : ndarray
+            Returns the probability of the sample for each class in the model,
+            where classes are ordered as they are in self.classes_.
+        """
         # check input
         X = check_array(X)
         scores = False
@@ -239,7 +321,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
                         # add child to nodes_to_visit
                         nodes_to_visit.append((self.tree[c],parent_prob))
         except NotFittedError as e:
-            print("This model is not fitted yet. Cal 'fit' \
+            raise NotFittedError("This model is not fitted yet. Cal 'fit' \
                     with appropriate arguments before using this \
                     method.") 
         stop_time = time.time()
@@ -248,13 +330,27 @@ class LCPN(BaseEstimator, ClassifierMixin):
         return np.hstack(probs)
 
     def score(self, X, y):
+        """Return mean accuracy score.
+        
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Test samples.
+        y : array-like of shape (n_samples,) or (n_samples, n_outputs)
+            True labels for X.
+       
+        Returns
+        -------
+        score : float
+            Mean accuracy of self.predict(X) wrt. y.
+        """
         # check input and outputs
         X, y  = check_X_y(X, y, multi_output=False)
         start_time = time.time()
         try:
             preds = self.predict(X)
         except NotFittedError as e:
-            print("This model is not fitted yet. Cal 'fit' \
+            raise NotFittedError("This model is not fitted yet. Cal 'fit' \
                     with appropriate arguments before using this \
                     method.")
         stop_time = time.time()
@@ -263,44 +359,74 @@ class LCPN(BaseEstimator, ClassifierMixin):
         score = accuracy_score(y, preds) 
         return score
 
-    def score_nodes(self, X, y):
-        # check input and outputs
-        X, y  = check_X_y(X, y, multi_output=False)
-        start_time = time.time()
-        # initialize score dict
+    def _score_node(self, node, X, y):
+        # check if node has estimator
         score_dict = {}
-        for node in self.tree:
-            node = self.tree[node]
-            if node["estimator"] is not None:
-                # transform data for node
-                y_transform = []
-                sel_ind = []
-                for i,yi in enumerate(y):
-                    if node["lbl"] in yi.split(self.sep):
+        if node["estimator"] is not None:
+            # transform data for node
+            y_transform = []
+            sel_ind = []
+            if node["lbl"] == "root":
+                y_transform = [yi.split(self.sep)[0] for yi in self.y_]
+                sel_ind = list(range(len(self.y_)))
+            else:
+                for i,y in enumerate(self.y_):
+                    if node["lbl"] in y.split(self.sep):
                         # need to include current label and sample (as long as it's "complete")
-                        y_split = yi.split(self.sep)
+                        y_split = y.split(self.sep)
                         if y_split.index(node["lbl"]) < len(y_split)-1:
                             y_transform.append(y_split[y_split.index(node["lbl"])+1])
                             sel_ind.append(i)
-                X_transform = X[sel_ind,:]
-                if len(sel_ind) != 0:
-                    # obtain predictions
-                    try:
-                        node_preds = node["estimator"].predict(X_transform)
-                        acc = accuracy_score(y_transform, node_preds)
-                        curr_node = node
-                        level = 0
-                        while (curr_node["parent"] != None):
-                            curr_node = self.tree[curr_node["parent"]]
-                            level += 1
-                        if level not in score_dict:
-                            score_dict[level] = []
-                        score_dict[level].append((node["lbl"],acc))
-                    except NotFittedError as e:
-                        print("this model is not fitted yet. cal 'fit' \
-                                with appropriate arguments before using this \
-                                method.")
+            X_transform = self.X_[sel_ind,:]
+            if len(sel_ind) != 0:
+                # obtain predictions
+                node_preds = node["estimator"].predict(X_transform)
+                acc = accuracy_score(y_transform, node_preds)
+                curr_node = node
+                level = 0
+                while (curr_node["parent"] != None):
+                    curr_node = self.tree[curr_node["parent"]]
+                    level += 1
+                if level not in score_dict:
+                    score_dict[level] = []
+                score_dict[level].append((node["lbl"],acc))
+        return score_dict
+
+    def score_nodes(self, X, y):
+        """Return mean accuracy score for each level and node in the hierarchy.
+        
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Test samples.
+        y : array-like of shape (n_samples,) or (n_samples, n_outputs)
+            True labels for X.
+       
+        Returns
+        -------
+        score_dict : dict
+            Mean accuracy of self.predict(X) wrt. y for each level (=key) and node (=value) in the hierarchy.
+        """
+        # check input and outputs
+        X, y  = check_X_y(X, y, multi_output=False)
+        start_time = time.time()
+        score_dict = {}
+        try: 
+            # now proceed to fitting
+            with parallel_backend("loky", inner_max_num_threads=1):
+                score_nodes = Parallel(n_jobs=self.n_jobs)(delayed(self._score_node)(self.tree[node], X, y) for node in self.tree)
+            for d in score_nodes:
+                if d is not None:
+                    for k,v in d.items():
+                        if k not in score_dict:
+                            score_dict[k] = v
+                        else:
+                            score_dict[k].extend(v)
+        except NotFittedError as e:
+            raise NotFittedError("This model is not fitted yet. Cal 'fit' \
+                    with appropriate arguments before using this \
+                    method.")
         stop_time = time.time()
         if self.verbose >= 1:
-            print(_message_with_time("LCPN", "calculating tree score", stop_time-start_time))
+            print(_message_with_time("LCPN", "calculating node scores", stop_time-start_time))
         return score_dict
