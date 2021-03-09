@@ -5,7 +5,6 @@ Date: Feb. 2021
 
 TODO: 
     * Fix issue with root -> CH -> ... situations
-    * Improve runtime for score_nodes
 """
 import time
 
@@ -28,11 +27,11 @@ class LCPN(BaseEstimator, ClassifierMixin):
     Parameters
     ----------
     estimator : scikit-learn base estimator
-        Represents the base estimator for the classification task in a given node.
+        Represents the base estimator for the classification task in each node.
     sep : str, default=';'
         Path separator used for processing the hierarchical labels. If set to None,
-        a random hierarchy is learned and the provided flat labels will be converted,
-        respectively.
+        a random hierarchy is created and provided flat labels are converted,
+        accordingly.
     k : int, default=2 
         Max number of children a node can have in the random generated tree. Is ignored when
         sep is set to None.
@@ -178,10 +177,14 @@ class LCPN(BaseEstimator, ClassifierMixin):
                 else:
                     # add child to nodes_to_visit
                     nodes_to_visit.append(self.tree[c])
-        self.classes_ = cls
-        # backtransform the encoded labels, in case of no predefined hierarchy
+        self.classes_ = cls 
+        # make sure that classes_ are in same format of original labels
         if self.label_encoder_ is not None:
             self.classes_ = self.label_encoder_.inverse_transform(self.classes_)
+        else:
+            # construct dict with leaf node lbls -> path mappings
+            lbl_to_path = {yi.split(self.sep)[-1]: yi for yi in self.y_}
+            self.classes_ = [lbl_to_path[cls] for cls in self.classes_]
         stop_time = time.time()
         if self.verbose >= 1:
             print(_message_with_time("LCPN", "fitting", stop_time-start_time))
@@ -359,41 +362,8 @@ class LCPN(BaseEstimator, ClassifierMixin):
         score = accuracy_score(y, preds) 
         return score
 
-    def _score_node(self, node, X, y):
-        # check if node has estimator
-        score_dict = {}
-        if node["estimator"] is not None:
-            # transform data for node
-            y_transform = []
-            sel_ind = []
-            if node["lbl"] == "root":
-                y_transform = [yi.split(self.sep)[0] for yi in self.y_]
-                sel_ind = list(range(len(self.y_)))
-            else:
-                for i,y in enumerate(self.y_):
-                    if node["lbl"] in y.split(self.sep):
-                        # need to include current label and sample (as long as it's "complete")
-                        y_split = y.split(self.sep)
-                        if y_split.index(node["lbl"]) < len(y_split)-1:
-                            y_transform.append(y_split[y_split.index(node["lbl"])+1])
-                            sel_ind.append(i)
-            X_transform = self.X_[sel_ind,:]
-            if len(sel_ind) != 0:
-                # obtain predictions
-                node_preds = node["estimator"].predict(X_transform)
-                acc = accuracy_score(y_transform, node_preds)
-                curr_node = node
-                level = 0
-                while (curr_node["parent"] != None):
-                    curr_node = self.tree[curr_node["parent"]]
-                    level += 1
-                if level not in score_dict:
-                    score_dict[level] = []
-                score_dict[level].append((node["lbl"],acc))
-        return score_dict
-
     def score_nodes(self, X, y):
-        """Return mean accuracy score for each level and node in the hierarchy.
+        """Return mean accuracy score for each node in the hierarchy.
         
         Parameters
         ----------
@@ -405,23 +375,40 @@ class LCPN(BaseEstimator, ClassifierMixin):
         Returns
         -------
         score_dict : dict
-            Mean accuracy of self.predict(X) wrt. y for each level (=key) and node (=value) in the hierarchy.
+            Mean accuracy of self.predict(X) wrt. y for each node in the hierarchy.
         """
         # check input and outputs
         X, y  = check_X_y(X, y, multi_output=False)
         start_time = time.time()
         score_dict = {}
         try: 
-            # now proceed to fitting
-            with parallel_backend("loky", inner_max_num_threads=1):
-                score_nodes = Parallel(n_jobs=self.n_jobs)(delayed(self._score_node)(self.tree[node], X, y) for node in self.tree)
-            for d in score_nodes:
-                if d is not None:
-                    for k,v in d.items():
-                        if k not in score_dict:
-                            score_dict[k] = v
-                        else:
-                            score_dict[k].extend(v)
+            # transform the flat labels, in case of no predefined hierarchy
+            if self.label_encoder_ is not None:
+                y = self.label_encoder_.transform(y)
+            for node in self.tree:
+                node = self.tree[node]
+                # check if node has estimator
+                if node["estimator"] is not None:
+                    # transform data for node
+                    y_transform = []
+                    sel_ind = []
+                    if node["lbl"] == "root":
+                        y_transform = [yi.split(self.sep)[0] for yi in y]
+                        sel_ind = list(range(len(y)))
+                    else:
+                        for i, yi in enumerate(y):
+                            if node["lbl"] in yi.split(self.sep):
+                                # need to include current label and sample (as long as it's "complete")
+                                y_split = yi.split(self.sep)
+                                if y_split.index(node["lbl"]) < len(y_split)-1:
+                                    y_transform.append(y_split[y_split.index(node["lbl"])+1])
+                                    sel_ind.append(i)
+                    X_transform = X[sel_ind,:]
+                    if len(sel_ind) != 0:
+                        # obtain predictions
+                        node_preds = node["estimator"].predict(X_transform)
+                        acc = accuracy_score(y_transform, node_preds)
+                        score_dict[node["lbl"]] = acc
         except NotFittedError as e:
             raise NotFittedError("This model is not fitted yet. Cal 'fit' \
                     with appropriate arguments before using this \

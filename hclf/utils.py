@@ -1,9 +1,6 @@
 """
 Some important functions and classes that are used throughout the module.
 Author: Thomas Mortier
-
-TODO:
-    * Improve random state for random hierarchy (shuffle + k)
 """
 import random
 import numpy as np
@@ -57,17 +54,15 @@ class HLabelEncoder(TransformerMixin, BaseEstimator):
         self.lbl_to_path = {c:[] for c in self.classes_}
         # now process each unique label and get path in random hierarchy
         lbls_to_process = [[c] for c in self.classes_]
-        k_seed = 0 # seed used to determine number of splits
         while len(lbls_to_process) > 1:
-            random.Random(self.random_state_).shuffle(lbls_to_process)
+            self.random_state_.shuffle(lbls_to_process)
             ch_list = []
-            for i in range(min(random.Random(k_seed).randint(1,self.k),len(lbls_to_process))):
+            for i in range(min(self.random_state_.randint(2,self.k),len(lbls_to_process))):
                 ch = lbls_to_process.pop(0)
                 for c in ch:
                     self.lbl_to_path[c].append(str(i))
                 ch_list.extend(ch)
             lbls_to_process.append(ch_list)
-            k_seed+=1
         self.lbl_to_path = {k:'.'.join(v)[::-1] for k,v in self.lbl_to_path.items()}
         # also store decoding dict
         self.path_to_lbl = {v:k for k,v in self.lbl_to_path.items()}
