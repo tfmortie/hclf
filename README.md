@@ -32,7 +32,7 @@ clf.fit(X, y)
 clf.score(X, y)
 ```
 
-Example file containing labels (i.e., paths in some hierarchy):
+Example file containing hierarchical labels (i.e., paths in some hierarchy):
 ```
 Family1;Genus1;Species1
 Family1;Genus1;Species2
@@ -41,6 +41,23 @@ Family1;Genus2;Species4
 Family1;Genus2;Species5
 Family2;Genus3;Species6
 ...
+```
+
+The module also supports flat labels. In that case a random hierarchy (``sep=None``) is generated, where the argument ``k`` specifies the maximum number of children an internal node can have.
+
+```python
+from hclf.multiclass import LCPN
+from sklearn.linear_model import LogisticRegression
+
+X, y = ... 
+clf = LCPN(LogisticRegression(random_state=0),
+        sep=None, 
+        k=10, # internal nodes can have at most 10 children
+        n_jobs=4,
+        random_state=0,
+        verbose=1)
+clf.fit(X, y)
+clf.score(X, y)
 ```
 
 ## References
