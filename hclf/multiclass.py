@@ -11,7 +11,7 @@ import time
 
 import numpy as np
 
-from hclf.utils import HLabelEncoder
+from ..hclf.utils import HLabelEncoder
 
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils import _message_with_time
