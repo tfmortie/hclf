@@ -5,6 +5,7 @@ Date: Feb. 2021
 
 TODO: 
     * Fix issue with root -> CH -> ... situations
+    * Introduce range for k
 """
 import time
 
