@@ -70,28 +70,30 @@ class LCPN(BaseEstimator, ClassifierMixin):
                 "estimator": None,
                 "children": [],
                 "parent": None}}
-    
+
     def _add_path(self, path):
-        current_node = "root"
-        for i in range(len(path)):
-            add_node = path[i]
-            # check if add_node is already registred
-            if add_node not in self.tree:
-                # check if add_node is terminal
-                if i < len(path)-1:
-                    # register add_node to the tree
-                    self.tree[add_node] = {
-                        "lbl": add_node,
-                        "estimator": None,
-                        "children": [],
-                        "parent": current_node} 
-                # add add_node to current_node's children (if not yet in list of children)
-                if add_node not in self.tree[current_node]["children"]:
-                    self.tree[current_node]["children"].append(add_node)
-                # set estimator when num. of children for current_node is higher than 1
-                if len(self.tree[current_node]["children"]) > 1:
-                    self.tree[current_node]["estimator"] = clone(self.estimator)
-            current_node = add_node
+        current_node = path[0]
+        add_node = path[1]
+        # check if add_node is already registred
+        if add_node not in self.tree:
+            # check if add_node is terminal
+            if len(path) > 2:
+                # register add_node to the tree
+                self.tree[add_node] = {
+                     "lbl": add_node,
+                     "estimator": None,
+                     "children": [],
+                     "parent": current_node} 
+            # add add_node to current_node's children (if not yet in list of children)
+            if add_node not in self.tree[current_node]["children"]:
+                self.tree[current_node]["children"].append(add_node)
+            # set estimator when num. of children for current_node is higher than 1
+            if len(self.tree[current_node]["children"]) > 1:
+                self.tree[current_node]["estimator"] = clone(self.estimator)
+        # process next couple of nodes in path
+        if len(path) > 2:
+            path = path[1:]
+            self._add_path(path)
 
     def _fit_node(self, node):
         # check if node has estimator
@@ -99,17 +101,13 @@ class LCPN(BaseEstimator, ClassifierMixin):
             # transform data for node
             y_transform = []
             sel_ind = []
-            if node["lbl"] == "root":
-                y_transform = [yi.split(self.sep)[0] for yi in self.y_]
-                sel_ind = list(range(len(self.y_)))
-            else:
-                for i,y in enumerate(self.y_):
-                    if node["lbl"] in y.split(self.sep):
-                        # need to include current label and sample (as long as it's "complete")
-                        y_split = y.split(self.sep)
-                        if y_split.index(node["lbl"]) < len(y_split)-1:
-                            y_transform.append(y_split[y_split.index(node["lbl"])+1])
-                            sel_ind.append(i)
+            for i,y in enumerate(self.y_):
+                if node["lbl"] in y.split(self.sep):
+                     # need to include current label and sample (as long as it's "complete")
+                     y_split = y.split(self.sep)
+                     if y_split.index(node["lbl"]) < len(y_split)-1:
+                         y_transform.append(y_split[y_split.index(node["lbl"])+1])
+                         sel_ind.append(i)
             X_transform = self.X_[sel_ind,:]
             node["estimator"].fit(X_transform, y_transform)
             if self.verbose >= 2:
@@ -197,7 +195,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
         for x in X:
             x = x.reshape(1,-1)
             pred = "root"
-            pred_path = []
+            pred_path = [pred]
             while pred in self.tree:
                 curr_node = self.tree[pred]
                 # check if we have a node with single path

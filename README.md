@@ -34,12 +34,12 @@ clf.score(X, y)
 
 Example file containing hierarchical labels (i.e., paths in some hierarchy):
 ```
-Family1;Genus1;Species1
-Family1;Genus1;Species2
-Family1;Genus1;Species3
-Family1;Genus2;Species4
-Family1;Genus2;Species5
-Family2;Genus3;Species6
+root;Family1;Genus1;Species1
+root;Family1;Genus1;Species2
+root;Family1;Genus1;Species3
+root;Family1;Genus2;Species4
+root;Family1;Genus2;Species5
+root;Family2;Genus3;Species6
 ...
 ```
 
