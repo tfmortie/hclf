@@ -13,7 +13,7 @@ import numpy as np
 
 from ..hclf.utils import HLabelEncoder
 
-from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.base import BaseEstimator, ClassifierMixin, clone
 from sklearn.utils import _message_with_time
 from sklearn.utils.validation import check_X_y, check_array, check_random_state
 from sklearn.exceptions import NotFittedError, FitFailedWarning
@@ -90,7 +90,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
                     self.tree[current_node]["children"].append(add_node)
                 # set estimator when num. of children for current_node is higher than 1
                 if len(self.tree[current_node]["children"]) > 1:
-                    self.tree[current_node]["estimator"] = type(self.estimator)(**self.estimator.get_params())
+                    self.tree[current_node]["estimator"] = clone(self.estimator)
             current_node = add_node
 
     def _fit_node(self, node):
