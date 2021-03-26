@@ -4,9 +4,10 @@ Author: Thomas Mortier
 Date: Feb. 2021
 
 TODO: 
-    * Allow tree structures with non-unique node labels.
+    * Feature: allow tree structures with non-unique node labels (currently, warning is thrown)
 """
 import time
+import warnings
 
 import numpy as np
 
@@ -86,9 +87,13 @@ class LCPN(BaseEstimator, ClassifierMixin):
             # add add_node to current_node's children (if not yet in list of children)
             if add_node not in self.tree[current_node]["children"]:
                 self.tree[current_node]["children"].append(add_node)
-            # set estimator when num. of children for current_node is higher than 1
-            if len(self.tree[current_node]["children"]) > 1:
+            # set estimator when num. of children for current_node is higher than 1 and if not yet set
+            if len(self.tree[current_node]["children"]) > 1 and current_node["estimator"] is None:
                 self.tree[current_node]["estimator"] = clone(self.estimator)
+        else:
+            # check for duplicate node labels 
+            if self.tree[add_node]["parent"] != current_node:
+                warnings.warn("Duplicate node label {0} detected in hierarchy with parents {1}, {2}!".format(add_node, self.tree[add_node]["parent"], current_node), FitFailedWarning)
         # process next couple of nodes in path
         if len(path) > 2:
             path = path[1:]
