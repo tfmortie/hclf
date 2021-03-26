@@ -2,11 +2,11 @@
 
 **hclf** is a Python module for hierarchical classification, built on top of scikit-learn. Currently, there is support for the following models: local classifier per parent node (LCPN) for multi-class classification and local classifier per node (LCN) for multi-label classification.
 
-## TODO
+## TODOs
 
 * Finalize LCN for multi-label classification 
 
-### Dependencies 
+## Dependencies 
 
 Following modules are required:
 
@@ -14,8 +14,6 @@ Following modules are required:
 * Scikit-learn
 * Joblib
 * SciPy (< 1.6.0)
-
-### User installation
 
 ## Basic usage
 
