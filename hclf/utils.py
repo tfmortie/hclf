@@ -15,8 +15,8 @@ class HLabelEncoder(TransformerMixin, BaseEstimator):
 
     Parameters
     ----------
-    k : int, default=2 
-        Max number of children a node can have in the random generated tree. Is ignored when
+    k : tuple of int, default=(2,2)
+        Min and max number of children a node can have in the random generated tree. Is ignored when
         sep is set to None.
     sep : str, default=';'
         string used for path encodings.
@@ -27,7 +27,7 @@ class HLabelEncoder(TransformerMixin, BaseEstimator):
     Examples
     --------
     """
-    def __init__(self, k=2, sep=';', random_state=None):
+    def __init__(self, k=(2,2), sep=';', random_state=None):
         self.k = k
         self.sep = sep
         self.random_state = random_state
@@ -57,13 +57,13 @@ class HLabelEncoder(TransformerMixin, BaseEstimator):
         while len(lbls_to_process) > 1:
             self.random_state_.shuffle(lbls_to_process)
             ch_list = []
-            for i in range(min(self.random_state_.randint(2,self.k),len(lbls_to_process))):
+            for i in range(min(self.random_state_.randint(self.k[0], self.k[1]+1),len(lbls_to_process))):
                 ch = lbls_to_process.pop(0)
                 for c in ch:
                     self.lbl_to_path[c].append(str(i))
                 ch_list.extend(ch)
             lbls_to_process.append(ch_list)
-        self.lbl_to_path = {k:'.'.join(v)[::-1] for k,v in self.lbl_to_path.items()}
+        self.lbl_to_path = {k: '.'.join((v+['root'])[::-1]) for k,v in self.lbl_to_path.items()}
         # also store decoding dict
         self.path_to_lbl = {v:k for k,v in self.lbl_to_path.items()}
         return self

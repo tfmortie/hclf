@@ -4,8 +4,7 @@ Author: Thomas Mortier
 Date: Feb. 2021
 
 TODO: 
-    * Fix issue with root -> CH -> ... situations
-    * Introduce range for k
+    * Allow tree structures with non-unique node labels.
 """
 import time
 
@@ -33,8 +32,8 @@ class LCPN(BaseEstimator, ClassifierMixin):
         Path separator used for processing the hierarchical labels. If set to None,
         a random hierarchy is created and provided flat labels are converted,
         accordingly.
-    k : int, default=2 
-        Max number of children a node can have in the random generated tree. Is ignored when
+    k : tuple of int, default=(2,2)
+        Min and max number of children a node can have in the random generated tree. Is ignored when
         sep is set to None.
     n_jobs : int, default=None
         The number of jobs to run in parallel. Currently this applies to fit, 
@@ -58,7 +57,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
     >>> clf.fit(X, y)
     >>> clf.score(X, y)
     """
-    def __init__(self, estimator, sep=';', k=2, n_jobs=None, random_state=None, verbose=0):
+    def __init__(self, estimator, sep=';', k=(2,2), n_jobs=None, random_state=None, verbose=0):
         self.estimator = estimator
         self.sep = sep
         self.k = k
