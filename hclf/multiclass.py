@@ -88,7 +88,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
             if add_node not in self.tree[current_node]["children"]:
                 self.tree[current_node]["children"].append(add_node)
             # set estimator when num. of children for current_node is higher than 1 and if not yet set
-            if len(self.tree[current_node]["children"]) > 1 and current_node["estimator"] is None:
+            if len(self.tree[current_node]["children"]) > 1 and self.tree[current_node]["estimator"] is None:
                 self.tree[current_node]["estimator"] = clone(self.estimator)
         else:
             # check for duplicate node labels 
