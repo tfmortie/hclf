@@ -65,11 +65,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
         self.n_jobs = n_jobs
         self.random_state = random_state
         self.verbose = verbose
-        self.tree = {"root": {
-                "lbl": "root",
-                "estimator": None,
-                "children": [],
-                "parent": None}}
+        self.tree = {}
 
     def _add_path(self, path):
         current_node = path[0]
@@ -146,6 +142,14 @@ class LCPN(BaseEstimator, ClassifierMixin):
         self.n_outputs_ = 1
         self.X_ = X
         self.y_ = y
+        # store label of root node
+        self.rlbl = self.y_[0].split(self.sep)[0]
+        # init tree
+        self.tree = {self.rlbl: {
+                "lbl": self.rlbl,
+                "estimator": None,
+                "children": [],
+                "parent": None}}
         # check if sep is None or str
         if type(self.sep) != str and self.sep is not None:
             raise TypeError("Parameter sep must be of type str or None.")
@@ -170,7 +174,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
             raise NotFittedError("Tree fitting failed! Make sure that the provided data is in the correct format.")
         # now store classes (leaf nodes) seen during fit
         cls = []
-        nodes_to_visit = [self.tree["root"]]
+        nodes_to_visit = [self.tree[self.rlbl]]
         while len(nodes_to_visit) > 0:
             curr_node = nodes_to_visit.pop()
             for c in curr_node["children"]:
@@ -198,7 +202,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
         # run over all samples
         for x in X:
             x = x.reshape(1,-1)
-            pred = "root"
+            pred = self.rlbl
             pred_path = [pred]
             while pred in self.tree:
                 curr_node = self.tree[pred]
@@ -301,7 +305,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
             else:
                 scores = True
         try:
-            nodes_to_visit = [(self.tree["root"], np.ones((X.shape[0],1)))]
+            nodes_to_visit = [(self.tree[self.rlbl], np.ones((X.shape[0],1)))]
             while len(nodes_to_visit) > 0:
                 curr_node, parent_prob = nodes_to_visit.pop()
                 # check if we have a node with single path
@@ -395,17 +399,13 @@ class LCPN(BaseEstimator, ClassifierMixin):
                     # transform data for node
                     y_transform = []
                     sel_ind = []
-                    if node["lbl"] == "root":
-                        y_transform = [yi.split(self.sep)[0] for yi in y]
-                        sel_ind = list(range(len(y)))
-                    else:
-                        for i, yi in enumerate(y):
-                            if node["lbl"] in yi.split(self.sep):
-                                # need to include current label and sample (as long as it's "complete")
-                                y_split = yi.split(self.sep)
-                                if y_split.index(node["lbl"]) < len(y_split)-1:
-                                    y_transform.append(y_split[y_split.index(node["lbl"])+1])
-                                    sel_ind.append(i)
+                    for i, yi in enumerate(y):
+                        if node["lbl"] in yi.split(self.sep):
+                            # need to include current label and sample (as long as it's "complete")
+                            y_split = yi.split(self.sep)
+                            if y_split.index(node["lbl"]) < len(y_split)-1:
+                                y_transform.append(y_split[y_split.index(node["lbl"])+1])
+                                sel_ind.append(i)
                     X_transform = X[sel_ind,:]
                     if len(sel_ind) != 0:
                         # obtain predictions
