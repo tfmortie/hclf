@@ -59,7 +59,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
     >>> clf.score(X, y)
     """
     def __init__(self, estimator, sep=';', k=(2,2), n_jobs=None, random_state=None, verbose=0):
-        self.estimator = estimator
+        self.estimator = clone(estimator)
         self.sep = sep
         self.k = k
         self.n_jobs = n_jobs
