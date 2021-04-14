@@ -35,7 +35,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
         accordingly.
     k : tuple of int, default=(2,2)
         Min and max number of children a node can have in the random generated tree. Is ignored when
-        sep is set to None.
+        sep is not set to None.
     n_jobs : int, default=None
         The number of jobs to run in parallel. Currently this applies to fit, 
         and predict.  
