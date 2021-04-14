@@ -167,7 +167,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
             for lbl in self.y_:
                 self._add_path(lbl.split(self.sep))
             # now proceed to fitting
-            with parallel_backend("loky", inner_max_num_threads=1):
+            with parallel_backend("loky"):
                 fitted_tree = Parallel(n_jobs=self.n_jobs)(delayed(self._fit_node)(self.tree[node]) for node in self.tree)
             self.tree = {k: v for d in fitted_tree for k, v in d.items()}
         except NotFittedError as e:
@@ -236,7 +236,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
         start_time = time.time()
         try:
             # now proceed to predicting
-            with parallel_backend("loky", inner_max_num_threads=1):
+            with parallel_backend("loky"):
                 d_preds = Parallel(n_jobs=self.n_jobs)(delayed(self._predict)(i,X[ind]) for i,ind in enumerate(np.array_split(range(X.shape[0]), self.n_jobs)))
             # collect predictions
             preds_dict = dict(ChainMap(*d_preds))
