@@ -51,7 +51,7 @@ class HLabelEncoder(TransformerMixin, BaseEstimator):
         # store classes seen during fit
         self.classes_ = list(np.unique(y))
         # label->path in random hierarchy dict
-        self.lbl_to_path = {c:[] for c in self.classes_}
+        self.flbl_to_tlbl = {c:[] for c in self.classes_}
         # now process each unique label and get path in random hierarchy
         lbls_to_process = [[c] for c in self.classes_]
         while len(lbls_to_process) > 1:
@@ -60,12 +60,12 @@ class HLabelEncoder(TransformerMixin, BaseEstimator):
             for i in range(min(self.random_state_.randint(self.k[0], self.k[1]+1),len(lbls_to_process))):
                 ch = lbls_to_process.pop(0)
                 for c in ch:
-                    self.lbl_to_path[c].append(str(i))
+                    self.flbl_to_tlbl[c].append(str(i))
                 ch_list.extend(ch)
             lbls_to_process.append(ch_list)
-        self.lbl_to_path = {k: '.'.join((v+['root'])[::-1]) for k,v in self.lbl_to_path.items()}
+        self.flbl_to_tlbl = {k: '.'.join((v+['r'])[::-1]) for k,v in self.flbl_to_tlbl.items()}
         # also store decoding dict
-        self.path_to_lbl = {v:k for k,v in self.lbl_to_path.items()}
+        self.tlbl_to_flbl = {v:k for k,v in self.flbl_to_tlbl.items()}
         return self
 
     def fit_transform(self, y):
@@ -102,7 +102,7 @@ class HLabelEncoder(TransformerMixin, BaseEstimator):
             return np.array([])
         y_transformed = []
         for yi in y:
-            path = self.lbl_to_path[yi].split('.')
+            path = self.flbl_to_tlbl[yi].split('.')
             y_transformed.append(self.sep.join(['.'.join(path[:i]) for i in range(1,len(path)+1)]))
         return y_transformed
 
@@ -126,5 +126,5 @@ class HLabelEncoder(TransformerMixin, BaseEstimator):
         y_transformed = []
         for yi in y:
             path = yi.split(self.sep)[-1]
-            y_transformed.append(self.path_to_lbl[path])
+            y_transformed.append(self.tlbl_to_flbl[path])
         return y_transformed
