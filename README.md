@@ -13,7 +13,7 @@ Following modules are required:
 * NumPy 
 * Scikit-learn
 * Joblib
-* SciPy (< 1.6.0)
+* SciPy
 
 ## Basic usage
 
