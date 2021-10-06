@@ -11,7 +11,7 @@ import warnings
 
 import numpy as np
 
-from ..hclf.utils import HLabelEncoder
+from hclf.utils import HLabelEncoder
 
 from sklearn.base import BaseEstimator, ClassifierMixin, clone
 from sklearn.utils import _message_with_time
