@@ -3,6 +3,7 @@ Some important functions and classes that are used throughout the module.
 Author: Thomas Mortier
 """
 import random
+import heapq
 import numpy as np
 
 from sklearn.base import BaseEstimator, TransformerMixin
@@ -128,3 +129,30 @@ class HLabelEncoder(TransformerMixin, BaseEstimator):
             path = yi.split(self.sep)[-1]
             y_transformed.append(self.tlbl_to_flbl[path])
         return y_transformed
+
+class PriorityQueue():
+    """ Priority queue implementation based on heaps.
+    """
+    def __init__(self):
+        self.list = []
+        
+    def push(self,prob,node):
+        heapq.heappush(self.list,[1-prob,node])
+
+    def pop(self):
+        return heapq.heappop(self.list)
+
+    def remove_all(self):
+        self.list = []
+        
+    def size(self):
+        return len(self.list)
+
+    def is_empty(self):
+        return len(self.list) == 0
+
+    def __repr__(self):
+        ret_str = ""
+        for l in self.list:
+            ret_str+="({0:.2f},{1}), ".format(1-l[0],l[1])
+        return ret_str

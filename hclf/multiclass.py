@@ -11,7 +11,7 @@ import warnings
 
 import numpy as np
 
-from hclf.utils import HLabelEncoder
+from hclf.utils import HLabelEncoder, PriorityQueue
 
 from sklearn.base import BaseEstimator, ClassifierMixin, clone
 from sklearn.utils import _message_with_time
@@ -197,7 +197,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
             print(_message_with_time("LCPN", "fitting", stop_time-start_time))
         return self
  
-    def _predict(self, i, X):
+    def _predict_nbop(self, i, X):
         preds = []
         # run over all samples
         for x in X:
@@ -214,16 +214,50 @@ class LCPN(BaseEstimator, ClassifierMixin):
                 pred_path.append(pred)
             preds.append(self.sep.join(pred_path))
         return {i: preds}
+      
+    def _predict_bop(self, i, X, scores):
+        preds = []
+        # run over all samples
+        for x in X:
+            x = x.reshape(1,-1)
+            nodes_to_visit = PriorityQueue()
+            nodes_to_visit.push(1.,self.rlbl)
+            pred_path = []
+            while not nodes_to_visit.is_empty():
+                curr_node_prob, curr_node = nodes_to_visit.pop()
+                curr_node_prob = 1-curr_node_prob
+                pred_path.append(curr_node)
+                # check if we are at a leaf node
+                if curr_node not in self.tree:
+                    break
+                else:
+                    curr_node = self.tree[curr_node]
+                    # check if we have a node with single path
+                    if curr_node["estimator"] is not None:
+                        # get probabilities
+                        curr_node_ch_probs = self._predict_proba(curr_node["estimator"], x, scores)
+                        # apply chain rule of probability
+                        curr_node_ch_probs = curr_node_ch_probs*curr_node_prob
+                        # add children to queue
+                        for j,c in enumerate(curr_node["children"]):
+                            prob_child = curr_node_ch_probs[:,j][0]
+                            nodes_to_visit.push(prob_child, c)
+                    else:
+                        c = curr_node["children"][0]
+                        nodes_to_visit.push(curr_node_prob,c)
+            preds.append(self.sep.join(pred_path))
+        return {i: preds}
     
-    def predict(self, X):
+    def predict(self, X, bop=False):
         """Return class predictions.
 
         Parameters
         ----------
         X : {array-like, sparse matrix}, shape (n_samples, n_features)
             Input samples.
-        avg : boolean, default=True
-            Return model average when true, and array of predictions otherwise.
+        bop : boolean, default=False
+            Returns Bayes-optimal solution when set to True. Returns
+            solution by following the path of maximum probability in each node, otherwise.
 
         Returns
         -------
@@ -232,12 +266,24 @@ class LCPN(BaseEstimator, ClassifierMixin):
         """
         # check input
         X = check_array(X)
+        scores = False
         preds = []
         start_time = time.time()
+        # check whether the base estimator supports probabilities
+        if not hasattr(self.estimator, 'predict_proba'):
+            # check whether the base estimator supports class scores
+            if not hasattr(self.estimator, 'decision_function'):
+                raise NotFittedError("{0} does not support \
+                         probabilistic predictions nor scores.".format(self.estimator))
+            else:
+                scores = True
         try:
             # now proceed to predicting
             with parallel_backend("loky"):
-                d_preds = Parallel(n_jobs=self.n_jobs)(delayed(self._predict)(i,X[ind]) for i,ind in enumerate(np.array_split(range(X.shape[0]), self.n_jobs)))
+                if not bop:
+                    d_preds = Parallel(n_jobs=self.n_jobs)(delayed(self._predict_nbop)(i,X[ind]) for i,ind in enumerate(np.array_split(range(X.shape[0]), self.n_jobs)))
+                else:
+                    d_preds = Parallel(n_jobs=self.n_jobs)(delayed(self._predict_bop)(i,X[ind],scores) for i,ind in enumerate(np.array_split(range(X.shape[0]), self.n_jobs)))
             # collect predictions
             preds_dict = dict(ChainMap(*d_preds))
             for k in np.sort(list(preds_dict.keys())):
