@@ -4,6 +4,7 @@ Author: Thomas Mortier
 Date: Feb. 2021
 
 TODO: 
+    * Add option for set-valued prediction
     * Feature: allow tree structures with non-unique node labels (currently, warning is thrown)
 """
 import time
@@ -11,7 +12,7 @@ import warnings
 
 import numpy as np
 
-from hclf.utils import HLabelEncoder, PriorityQueue
+from .utils import HLabelEncoder, PriorityQueue
 
 from sklearn.base import BaseEstimator, ClassifierMixin, clone
 from sklearn.utils import _message_with_time

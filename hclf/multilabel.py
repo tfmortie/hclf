@@ -14,7 +14,7 @@ import time
 
 import numpy as np
 
-from hclf.utils import random_minority_oversampler
+from .utils import random_minority_oversampler
 
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils import _message_with_time
