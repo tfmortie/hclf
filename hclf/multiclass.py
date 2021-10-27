@@ -217,14 +217,15 @@ class LCPN(BaseEstimator, ClassifierMixin):
                     cr = self._predict_proba(curr_node["estimator"], x, scores)
                     curr_node_prob = curr_node_prob*cr
                     break
-                elif self.reject == True and curr_node_prob >= threshold:
+                elif self.reject == True and curr_node_prob <= threshold:
+                    print(rejected)
                     break
                 else: 
                     pred = curr_node["children"][0]
                 pred_path.append(pred)
             preds.append(self.sep.join(pred_path))
             probs.append(curr_node_prob)
-        return ({i: [preds, probs])
+        return ({i: [preds, probs]})
       
     def _predict_bop(self, i, X, scores, threshold):
         preds = []
@@ -263,7 +264,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
                         nodes_to_visit.push(curr_node_prob,c)
             preds.append(self.sep.join(pred_path))
             probs.append(final_prob)
-        return ({i: preds}, {i: probs})
+        return ({i: [preds, probs]})
     
     def predict(self, X, threshold, bop=False):
         """Return class predictions.
@@ -305,11 +306,10 @@ class LCPN(BaseEstimator, ClassifierMixin):
                     d = Parallel(n_jobs=self.n_jobs)(delayed(self._predict_bop)(i,X[ind],scores, threshold) for i,ind in enumerate(np.array_split(range(X.shape[0]), self.n_jobs)))
             # collect
                 print(d)
-                preds_dict = dict(ChainMap(*d_preds))
-                probs_dict = dict(ChainMap(*d_probs))
-            for k in np.sort(list(preds_dict.keys())):
-                preds.extend(preds_dict[k])
-                probs.extend(probs_dict[k])
+                dictio = dict(ChainMap(*d))
+            for k in np.sort(list(dictio.keys())):
+                preds.extend(dictio[k][0])
+                probs.extend(dictio[k][1])
             # in case of no predefined hierarchy, backtransform to originahttps://realpython.com/python-chainmap/#l labels
             if self.label_encoder_ is not None:
                 preds = self.label_encoder_.inverse_transform([p.split(self.sep)[-1] for p in preds])
