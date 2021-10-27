@@ -59,7 +59,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
     >>> clf.fit(X, y)
     >>> clf.score(X, y)
     """
-    def __init__(self, estimator, sep=';', k=(2,2), n_jobs=None, random_state=None, verbose=0):
+    def __init__(self, estimator, sep=';', k=(2,2), threshold, n_jobs=None, random_state=None, verbose=0, reject = False):
         self.estimator = clone(estimator)
         self.sep = sep
         self.k = k
@@ -67,6 +67,8 @@ class LCPN(BaseEstimator, ClassifierMixin):
         self.random_state = random_state
         self.verbose = verbose
         self.tree = {}
+        self.treshold = threshold
+        self.reject = reject
 
     def _add_path(self, path):
         current_node = path[0]
@@ -200,24 +202,29 @@ class LCPN(BaseEstimator, ClassifierMixin):
  
     def _predict_nbop(self, i, X):
         preds = []
+        probs = []
         # run over all samples
         for x in X:
             x = x.reshape(1,-1)
             pred = self.rlbl
+            curr_node_prob = 1 #prob of root is 1
             pred_path = [pred]
             while pred in self.tree:
                 curr_node = self.tree[pred]
                 # check if we have a node with single path
                 if curr_node["estimator"] is not None:
                     pred = curr_node["estimator"].predict(x)[0]
+                    curr_node_prob = curr_node_prob*self._predict_proba(curr_node["estimator"],x, scores) 
                 else: 
                     pred = curr_node["children"][0]
                 pred_path.append(pred)
             preds.append(self.sep.join(pred_path))
-        return {i: preds}
+            probs.append(curr_node_prob)
+        return ({i: preds}, {i:probs})
       
     def _predict_bop(self, i, X, scores):
         preds = []
+        probs = []
         # run over all samples
         for x in X:
             x = x.reshape(1,-1)
@@ -226,10 +233,14 @@ class LCPN(BaseEstimator, ClassifierMixin):
             pred_path = []
             while not nodes_to_visit.is_empty():
                 curr_node_prob, curr_node = nodes_to_visit.pop()
-                curr_node_prob = 1-curr_node_prob
+                curr_node_prob = 1-curr_node_prob # has to do with heap implementation
                 pred_path.append(curr_node)
                 # check if we are at a leaf node
                 if curr_node not in self.tree:
+                    final_prob = curr_node_prob
+                    break
+                elif self.reject == True and curr_node_prob <= self.threshold:
+                    final_prob = curr_node_prob
                     break
                 else:
                     curr_node = self.tree[curr_node]
@@ -247,7 +258,8 @@ class LCPN(BaseEstimator, ClassifierMixin):
                         c = curr_node["children"][0]
                         nodes_to_visit.push(curr_node_prob,c)
             preds.append(self.sep.join(pred_path))
-        return {i: preds}
+            probs.append(final_prob)
+        return ({i: preds}, {i:probs})
     
     def predict(self, X, bop=False):
         """Return class predictions.
@@ -269,6 +281,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
         X = check_array(X)
         scores = False
         preds = []
+        probs = []
         start_time = time.time()
         # check whether the base estimator supports probabilities
         if not hasattr(self.estimator, 'predict_proba'):
@@ -282,13 +295,15 @@ class LCPN(BaseEstimator, ClassifierMixin):
             # now proceed to predicting
             with parallel_backend("loky"):
                 if not bop:
-                    d_preds = Parallel(n_jobs=self.n_jobs)(delayed(self._predict_nbop)(i,X[ind]) for i,ind in enumerate(np.array_split(range(X.shape[0]), self.n_jobs)))
+                    d_preds, d_probs = Parallel(n_jobs=self.n_jobs)(delayed(self._predict_nbop)(i,X[ind]) for i,ind in enumerate(np.array_split(range(X.shape[0]), self.n_jobs)))
                 else:
-                    d_preds = Parallel(n_jobs=self.n_jobs)(delayed(self._predict_bop)(i,X[ind],scores) for i,ind in enumerate(np.array_split(range(X.shape[0]), self.n_jobs)))
-            # collect predictions
+                    d_preds, d_probs = Parallel(n_jobs=self.n_jobs)(delayed(self._predict_bop)(i,X[ind],scores) for i,ind in enumerate(np.array_split(range(X.shape[0]), self.n_jobs)))
+            # collect predictions and probabilities
             preds_dict = dict(ChainMap(*d_preds))
+            probs_dict = dict(ChainMap(*d_probs))
             for k in np.sort(list(preds_dict.keys())):
                 preds.extend(preds_dict[k])
+                probs.extend(probs_dict[k])
             # in case of no predefined hierarchy, backtransform to original labels
             if self.label_encoder_ is not None:
                 preds = self.label_encoder_.inverse_transform([p.split(self.sep)[-1] for p in preds])
@@ -299,7 +314,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
         stop_time = time.time()
         if self.verbose >= 1:
             print(_message_with_time("LCPN", "predicting", stop_time-start_time))
-        return preds
+        return preds, probs
      
     def _predict_proba(self, estimator, X, scores=False):
         if not scores:
