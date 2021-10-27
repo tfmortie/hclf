@@ -215,7 +215,8 @@ class LCPN(BaseEstimator, ClassifierMixin):
                 # check if we have a node with single path
                 if curr_node["estimator"] is not None:
                     pred = curr_node["estimator"].predict(x)[0]
-                    curr_node_prob = curr_node_prob*(self._predict_proba(curr_node["estimator"],x, scores))
+                    cr = self._predict_proba(curr_node["estimator"], x, scores)
+                    curr_node_prob = curr_node_prob*cr
                 else: 
                     pred = curr_node["children"][0]
                 pred_path.append(pred)
@@ -297,7 +298,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
             # now proceed to predicting
             with parallel_backend("loky"):
                 if not bop:
-                    d_preds, d_probs = Parallel(n_jobs=self.n_jobs)(delayed(self._predict_nbop)(i,X[ind],scores) for i,ind in enumerate(np.array_split(range(X.shape[0]), self.n_jobs)))
+                    d_preds, d_probs = Parallel(n_jobs=self.n_jobs)(delayed(self._predict_nbop)(i,X[ind],scores) for i,ind in enumerate(np.array_split(range(X.shape[0]),self.n_jobs)))
                 else:
                     d_preds, d_probs = Parallel(n_jobs=self.n_jobs)(delayed(self._predict_bop)(i,X[ind],scores) for i,ind in enumerate(np.array_split(range(X.shape[0]), self.n_jobs)))
             # collect predictions and probabilities
@@ -316,7 +317,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
         stop_time = time.time()
         if self.verbose >= 1:
             print(_message_with_time("LCPN", "predicting", stop_time-start_time))
-        return preds, probs
+        return (preds, probs)
      
     def _predict_proba(self, estimator, X, scores=False):
         if not scores:
