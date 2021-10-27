@@ -59,7 +59,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
     >>> clf.fit(X, y)
     >>> clf.score(X, y)
     """
-    def __init__(self, estimator, sep=';', k=(2,2), threshold, n_jobs=None, random_state=None, verbose=0, reject = False):
+    def __init__(self, estimator, threshold, sep=';', k=(2,2), n_jobs=None, random_state=None, verbose=0, reject=False):
         self.estimator = clone(estimator)
         self.sep = sep
         self.k = k
@@ -200,9 +200,10 @@ class LCPN(BaseEstimator, ClassifierMixin):
             print(_message_with_time("LCPN", "fitting", stop_time-start_time))
         return self
  
-    def _predict_nbop(self, i, X):
+    def _predict_nbop(self, i, X, scores):
         preds = []
         probs = []
+        print(scores)
         # run over all samples
         for x in X:
             x = x.reshape(1,-1)
@@ -214,7 +215,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
                 # check if we have a node with single path
                 if curr_node["estimator"] is not None:
                     pred = curr_node["estimator"].predict(x)[0]
-                    curr_node_prob = curr_node_prob*self._predict_proba(curr_node["estimator"],x, scores) 
+                    curr_node_prob = curr_node_prob*(self._predict_proba(curr_node["estimator"],x, scores))
                 else: 
                     pred = curr_node["children"][0]
                 pred_path.append(pred)
@@ -291,11 +292,12 @@ class LCPN(BaseEstimator, ClassifierMixin):
                          probabilistic predictions nor scores.".format(self.estimator))
             else:
                 scores = True
+        print(scores)
         try:
             # now proceed to predicting
             with parallel_backend("loky"):
                 if not bop:
-                    d_preds, d_probs = Parallel(n_jobs=self.n_jobs)(delayed(self._predict_nbop)(i,X[ind]) for i,ind in enumerate(np.array_split(range(X.shape[0]), self.n_jobs)))
+                    d_preds, d_probs = Parallel(n_jobs=self.n_jobs)(delayed(self._predict_nbop)(i,X[ind],scores) for i,ind in enumerate(np.array_split(range(X.shape[0]), self.n_jobs)))
                 else:
                     d_preds, d_probs = Parallel(n_jobs=self.n_jobs)(delayed(self._predict_bop)(i,X[ind],scores) for i,ind in enumerate(np.array_split(range(X.shape[0]), self.n_jobs)))
             # collect predictions and probabilities
