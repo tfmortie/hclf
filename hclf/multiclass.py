@@ -209,13 +209,16 @@ class LCPN(BaseEstimator, ClassifierMixin):
             pred = self.rlbl
             curr_node_prob = 1 #prob of root is 1
             pred_path = [pred]
-            while pred in self.tree and curr_node_prob >= threshold:
+            while pred in self.tree:
                 curr_node = self.tree[pred]
                 # check if we have a node with single path
                 if curr_node["estimator"] is not None:
                     pred = curr_node["estimator"].predict(x)[0]
                     cr = self._predict_proba(curr_node["estimator"], x, scores)
                     curr_node_prob = curr_node_prob*cr
+                    break
+                elif self.reject == True and curr_node_prob >= threshold:
+                    break
                 else: 
                     pred = curr_node["children"][0]
                 pred_path.append(pred)
@@ -260,7 +263,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
                         nodes_to_visit.push(curr_node_prob,c)
             preds.append(self.sep.join(pred_path))
             probs.append(final_prob)
-        return ({i: [preds, probs])
+        return ({i: [preds, probs]})
     
     def predict(self, X, threshold, bop=False):
         """Return class predictions.
@@ -301,7 +304,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
                 else:
                     d = Parallel(n_jobs=self.n_jobs)(delayed(self._predict_bop)(i,X[ind],scores, threshold) for i,ind in enumerate(np.array_split(range(X.shape[0]), self.n_jobs)))
             # collect
-               dictio = dict(ChainMap(*d))
+                dictio = dict(ChainMap(*d))
             for k in np.sort(list(dictio.keys())):
                 preds.extend(dictio[k][0])
                 probs.extend(dictio[k][1])
