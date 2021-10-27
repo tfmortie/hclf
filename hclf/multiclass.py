@@ -59,7 +59,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
     >>> clf.fit(X, y)
     >>> clf.score(X, y)
     """
-    def __init__(self, estimator, threshold, sep=';', k=(2,2), n_jobs=None, random_state=None, verbose=0, reject=False):
+    def __init__(self, estimator, sep=';', k=(2,2), n_jobs=None, random_state=None, verbose=0, reject=False):
         self.estimator = clone(estimator)
         self.sep = sep
         self.k = k
@@ -67,7 +67,6 @@ class LCPN(BaseEstimator, ClassifierMixin):
         self.random_state = random_state
         self.verbose = verbose
         self.tree = {}
-        self.treshold = threshold
         self.reject = reject
 
     def _add_path(self, path):
@@ -200,7 +199,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
             print(_message_with_time("LCPN", "fitting", stop_time-start_time))
         return self
  
-    def _predict_nbop(self, i, X, scores):
+    def _predict_nbop(self, i, X, scores, threshold):
         preds = []
         probs = []
         print(scores)
@@ -210,7 +209,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
             pred = self.rlbl
             curr_node_prob = 1 #prob of root is 1
             pred_path = [pred]
-            while pred in self.tree:
+            while pred in self.tree and curr_node_prob >= threshold:
                 curr_node = self.tree[pred]
                 # check if we have a node with single path
                 if curr_node["estimator"] is not None:
@@ -224,7 +223,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
             probs.append(curr_node_prob)
         return ({i: preds}, {i:probs})
       
-    def _predict_bop(self, i, X, scores):
+    def _predict_bop(self, i, X, scores, threshold):
         preds = []
         probs = []
         # run over all samples
@@ -241,7 +240,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
                 if curr_node not in self.tree:
                     final_prob = curr_node_prob
                     break
-                elif self.reject == True and curr_node_prob <= self.threshold:
+                elif self.reject == True and curr_node_prob >= threshold:
                     final_prob = curr_node_prob
                     break
                 else:
@@ -263,7 +262,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
             probs.append(final_prob)
         return ({i: [preds, probs])
     
-    def predict(self, X, bop=False):
+    def predict(self, X, threshold, bop=False):
         """Return class predictions.
 
         Parameters
@@ -298,9 +297,9 @@ class LCPN(BaseEstimator, ClassifierMixin):
             # now proceed to predicting
             with parallel_backend("loky"):
                 if not bop:
-                    d = Parallel(n_jobs=self.n_jobs)(delayed(self._predict_nbop)(i,X[ind],scores) for i,ind in enumerate(np.array_split(range(X.shape[0]),self.n_jobs)))
+                    d = Parallel(n_jobs=self.n_jobs)(delayed(self._predict_nbop)(i,X[ind],scores, threshold) for i,ind in enumerate(np.array_split(range(X.shape[0]),self.n_jobs)))
                 else:
-                    d = Parallel(n_jobs=self.n_jobs)(delayed(self._predict_bop)(i,X[ind],scores) for i,ind in enumerate(np.array_split(range(X.shape[0]), self.n_jobs)))
+                    d = Parallel(n_jobs=self.n_jobs)(delayed(self._predict_bop)(i,X[ind],scores, threshold) for i,ind in enumerate(np.array_split(range(X.shape[0]), self.n_jobs)))
             # collect
                dictio = dict(ChainMap(*d))
             for k in np.sort(list(dictio.keys())):
