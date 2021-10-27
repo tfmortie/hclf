@@ -224,7 +224,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
                 pred_path.append(pred)
             preds.append(self.sep.join(pred_path))
             probs.append(curr_node_prob)
-        return ({i: preds}, {i:probs})
+        return ({i: [preds, probs])
       
     def _predict_bop(self, i, X, scores, threshold):
         preds = []
@@ -300,10 +300,11 @@ class LCPN(BaseEstimator, ClassifierMixin):
             # now proceed to predicting
             with parallel_backend("loky"):
                 if not bop:
-                    d_preds, d_probs = Parallel(n_jobs=self.n_jobs)(delayed(self._predict_nbop)(i,X[ind],scores, threshold) for i,ind in enumerate(np.array_split(range(X.shape[0]),self.n_jobs)))
+                    d = Parallel(n_jobs=self.n_jobs)(delayed(self._predict_nbop)(i,X[ind],scores, threshold) for i,ind in enumerate(np.array_split(range(X.shape[0]),self.n_jobs)))
                 else:
                     d = Parallel(n_jobs=self.n_jobs)(delayed(self._predict_bop)(i,X[ind],scores, threshold) for i,ind in enumerate(np.array_split(range(X.shape[0]), self.n_jobs)))
             # collect
+                print(d)
                 preds_dict = dict(ChainMap(*d_preds))
                 probs_dict = dict(ChainMap(*d_probs))
             for k in np.sort(list(preds_dict.keys())):
