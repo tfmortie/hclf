@@ -202,7 +202,6 @@ class LCPN(BaseEstimator, ClassifierMixin):
     def _predict_nbop(self, i, X, scores, threshold):
         preds = []
         probs = []
-        print(scores)
         # run over all samples
         for x in X:
             x = x.reshape(1,-1)
@@ -214,11 +213,9 @@ class LCPN(BaseEstimator, ClassifierMixin):
                 # check if we have a node with single path
                 if curr_node["estimator"] is not None:
                     pred = curr_node["estimator"].predict(x)[0]
-                    cr = self._predict_proba(curr_node["estimator"], x, scores)
-                    curr_node_prob = curr_node_prob*cr
-                    break
-                elif self.reject == True and curr_node_prob <= threshold:
-                    print(rejected)
+                    curr_node_ch_probs = self._predict_proba(curr_node["estimator"], x, scores)
+                    curr_node_prob = max(max(curr_node_ch_probs))*curr_node_prob # gives an array apparently
+                elif self.reject == True and curr_node_prob < threshold:
                     break
                 else: 
                     pred = curr_node["children"][0]
@@ -242,10 +239,6 @@ class LCPN(BaseEstimator, ClassifierMixin):
                 pred_path.append(curr_node)
                 # check if we are at a leaf node
                 if curr_node not in self.tree:
-                    final_prob = curr_node_prob
-                    break
-                elif self.reject == True and curr_node_prob >= threshold:
-                    final_prob = curr_node_prob
                     break
                 else:
                     curr_node = self.tree[curr_node]
@@ -258,7 +251,13 @@ class LCPN(BaseEstimator, ClassifierMixin):
                         # add children to queue
                         for j,c in enumerate(curr_node["children"]):
                             prob_child = curr_node_ch_probs[:,j][0]
-                            nodes_to_visit.push(prob_child, c)
+                            if self.reject == True :
+                                if prob_child >= threshold:
+                                    nodes_to_visit.push(prob_child, c)
+                                else: 
+                                    break
+                            else: 
+                                nodes_to_visit.push(prob_child, c)
                     else:
                         c = curr_node["children"][0]
                         nodes_to_visit.push(curr_node_prob,c)
@@ -307,6 +306,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
             # collect
                 print(d)
                 dictio = dict(ChainMap(*d))
+                print(dictio)
             for k in np.sort(list(dictio.keys())):
                 preds.extend(dictio[k][0])
                 probs.extend(dictio[k][1])
