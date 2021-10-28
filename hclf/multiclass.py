@@ -59,7 +59,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
     >>> clf.fit(X, y)
     >>> clf.score(X, y)
     """
-    def __init__(self, estimator, sep=';', k=(2,2), n_jobs=None, random_state=None, verbose=0, reject=False):
+    def __init__(self, estimator, sep=';', k=(2,2), n_jobs=None, random_state=None, verbose=0):
         self.estimator = clone(estimator)
         self.sep = sep
         self.k = k
@@ -67,7 +67,6 @@ class LCPN(BaseEstimator, ClassifierMixin):
         self.random_state = random_state
         self.verbose = verbose
         self.tree = {}
-        self.reject = reject
 
     def _add_path(self, path):
         current_node = path[0]
@@ -135,7 +134,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
         """
         self.random_state_ = check_random_state(self.random_state)
         # need to make sure that X and y have the correct shape
-        X, y = check_X_y(X, y, multi_output=False) # multi-output not supported (yet)
+        X, y = check_X_y(X, y, multi_output=False, accept_sparse=True) # multi-output not supported (yet)
         # check if n_jobs is integer
         if not self.n_jobs is None:
             if not isinstance(self.n_jobs, int):
@@ -199,7 +198,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
             print(_message_with_time("LCPN", "fitting", stop_time-start_time))
         return self
  
-    def _predict_nbop(self, i, X, scores, threshold):
+    def _predict_greedy(self, i, X, scores, reject_thr):
         preds = []
         probs = []
         # run over all samples
@@ -211,20 +210,22 @@ class LCPN(BaseEstimator, ClassifierMixin):
             while pred in self.tree:
                 curr_node = self.tree[pred]
                 # check if we have a node with single path
-                if curr_node["estimator"] is not None:
+                if curr_node["estimator"] is not None: 
                     pred = curr_node["estimator"].predict(x)[0]
                     curr_node_ch_probs = self._predict_proba(curr_node["estimator"], x, scores)
-                    curr_node_prob = max(max(curr_node_ch_probs))*curr_node_prob # gives an array apparently
-                elif self.reject == True and curr_node_prob < threshold:
-                    break
+                    curr_node_prob_new = max(max(curr_node_ch_probs))*curr_node_prob # gives an array apparently
+                    if reject_thr != None and curr_node_prob_new < reject_thr :
+                        break
+                    else:
+                        curr_node_prob = curr_node_prob_new
                 else: 
-                    pred = curr_node["children"][0]
+                    pred = curr_node["children"][0] 
                 pred_path.append(pred)
             preds.append(self.sep.join(pred_path))
             probs.append(curr_node_prob)
         return ({i: [preds, probs]})
-      
-    def _predict_bop(self, i, X, scores, threshold):
+    
+        def _predict_ngreedy(self, i, X, scores, reject_thr):
         preds = []
         probs = []
         # run over all samples
@@ -237,6 +238,12 @@ class LCPN(BaseEstimator, ClassifierMixin):
                 curr_node_prob, curr_node = nodes_to_visit.pop()
                 curr_node_prob = 1-curr_node_prob # has to do with heap implementation
                 pred_path.append(curr_node)
+                if reject_thr != None
+                    if curr_node_prob > reject_thr:
+                        optimal_node_prob = curr_node_prob
+                        optimal_pred_path = pred_path
+                    else:
+                        break
                 # check if we are at a leaf node
                 if curr_node not in self.tree:
                     break
@@ -251,38 +258,40 @@ class LCPN(BaseEstimator, ClassifierMixin):
                         # add children to queue
                         for j,c in enumerate(curr_node["children"]):
                             prob_child = curr_node_ch_probs[:,j][0]
-                            if self.reject == True :
-                                if prob_child >= threshold:
-                                    nodes_to_visit.push(prob_child, c)
-                                else: 
-                                    break
-                            else: 
-                                nodes_to_visit.push(prob_child, c)
+                            nodes_to_visit.push(prob_child, c)
                     else:
                         c = curr_node["children"][0]
                         nodes_to_visit.push(curr_node_prob,c)
-            preds.append(self.sep.join(pred_path))
-            probs.append(final_prob)
+            
+            if reject_thr != None:
+                probs.append(optimal_node_prob)
+                preds.append(self.sep.join(optimal_pred_path))
+            else:
+                probs.append(curr_node_prob)
+                preds.append(self.sep.join(pred_path))
         return ({i: [preds, probs]})
     
-    def predict(self, X, threshold, bop=False):
+    def predict(self, X, greedy=True, reject_thr = None):
         """Return class predictions.
 
         Parameters
         ----------
         X : {array-like, sparse matrix}, shape (n_samples, n_features)
             Input samples.
-        bop : boolean, default=False
-            Returns Bayes-optimal solution when set to True. Returns
-            solution by following the path of maximum probability in each node, otherwise.
-
+        greedy: Boolean, default = True
+             Returns Bayes-optimal solution when set to False. Returns
+             solution by following the path of maximum probability in each node, otherwise.
+        reject_thr : float, default=None
+            If None, no rejection is implemented. if a float is given, classification occus until the level 
+            where probability prediction >= float.
+           
         Returns
         -------
         preds : ndarray
             Returns an array of predicted class labels.
         """
         # check input
-        X = check_array(X)
+        X = check_array(X, accept_sparse=True)
         scores = False
         preds = []
         probs = []
@@ -295,18 +304,15 @@ class LCPN(BaseEstimator, ClassifierMixin):
                          probabilistic predictions nor scores.".format(self.estimator))
             else:
                 scores = True
-        print(scores)
         try:
             # now proceed to predicting
             with parallel_backend("loky"):
-                if not bop:
-                    d = Parallel(n_jobs=self.n_jobs)(delayed(self._predict_nbop)(i,X[ind],scores, threshold) for i,ind in enumerate(np.array_split(range(X.shape[0]),self.n_jobs)))
+                if greedy:
+                    d = Parallel(n_jobs=self.n_jobs)(delayed(self._predict_greedy)(i,X[ind],scores, reject_thr) for i,ind in enumerate(np.array_split(range(X.shape[0]),self.n_jobs)))
                 else:
-                    d = Parallel(n_jobs=self.n_jobs)(delayed(self._predict_bop)(i,X[ind],scores, threshold) for i,ind in enumerate(np.array_split(range(X.shape[0]), self.n_jobs)))
+                    d = Parallel(n_jobs=self.n_jobs)(delayed(self._predict_ngreedy)(i,X[ind],scores, reject_thr) for i,ind in enumerate(np.array_split(range(X.shape[0]), self.n_jobs)))
             # collect
-                print(d)
                 dictio = dict(ChainMap(*d))
-                print(dictio)
             for k in np.sort(list(dictio.keys())):
                 preds.extend(dictio[k][0])
                 probs.extend(dictio[k][1])
