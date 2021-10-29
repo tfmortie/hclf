@@ -211,9 +211,10 @@ class LCPN(BaseEstimator, ClassifierMixin):
                 curr_node = self.tree[pred]
                 # check if we have a node with single path
                 if curr_node["estimator"] is not None: 
+                    pred_probs = self._predict_proba(curr_node["estimator"], x, scores)
+                    curr_node_prob_new = max(max(pred_probs))*curr_node_prob # gives an array apparently
                     pred = curr_node["estimator"].predict(x)[0]
-                    curr_node_ch_probs = self._predict_proba(curr_node["estimator"], x, scores)
-                    curr_node_prob_new = max(max(curr_node_ch_probs))*curr_node_prob # gives an array apparently
+                    debug[pred] = curr_node_prob_new
                     if reject_thr != None and curr_node_prob_new < reject_thr :
                         break
                     else:
@@ -225,7 +226,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
             probs.append(curr_node_prob)
         return ({i: [preds, probs]})
     
-        def _predict_ngreedy(self, i, X, scores, reject_thr):
+    def _predict_ngreedy(self, i, X, scores, reject_thr):
         preds = []
         probs = []
         # run over all samples
@@ -237,13 +238,13 @@ class LCPN(BaseEstimator, ClassifierMixin):
             while not nodes_to_visit.is_empty():
                 curr_node_prob, curr_node = nodes_to_visit.pop()
                 curr_node_prob = 1-curr_node_prob # has to do with heap implementation
-                pred_path.append(curr_node)
-                if reject_thr != None
-                    if curr_node_prob > reject_thr:
+                if reject_thr != None:
+                    if curr_node_prob >= reject_thr:
                         optimal_node_prob = curr_node_prob
                         optimal_pred_path = pred_path
                     else:
                         break
+                pred_path.append(curr_node)
                 # check if we are at a leaf node
                 if curr_node not in self.tree:
                     break
@@ -262,7 +263,6 @@ class LCPN(BaseEstimator, ClassifierMixin):
                     else:
                         c = curr_node["children"][0]
                         nodes_to_visit.push(curr_node_prob,c)
-            
             if reject_thr != None:
                 probs.append(optimal_node_prob)
                 preds.append(self.sep.join(optimal_pred_path))
@@ -271,7 +271,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
                 preds.append(self.sep.join(pred_path))
         return ({i: [preds, probs]})
     
-    def predict(self, X, greedy=True, reject_thr = None):
+    def predict(self, X,reject_thr = None, greedy=True):
         """Return class predictions.
 
         Parameters
