@@ -214,7 +214,6 @@ class LCPN(BaseEstimator, ClassifierMixin):
                     pred_probs = self._predict_proba(curr_node["estimator"], x, scores)
                     curr_node_prob_new = max(max(pred_probs))*curr_node_prob # gives an array apparently
                     pred = curr_node["estimator"].predict(x)[0]
-                    debug[pred] = curr_node_prob_new
                     if reject_thr != None and curr_node_prob_new < reject_thr :
                         break
                     else:
