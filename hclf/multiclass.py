@@ -226,6 +226,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
         return ({i: [preds, probs]})
     
     def _predict_ngreedy(self, i, X, scores, reject_thr):
+        #NOTE: check if probabilities are still correct
         preds = []
         probs = []
         # run over all samples
@@ -233,41 +234,42 @@ class LCPN(BaseEstimator, ClassifierMixin):
             x = x.reshape(1,-1)
             nodes_to_visit = PriorityQueue()
             nodes_to_visit.push(1.,self.rlbl)
-            pred_path = []
+            pred = None
             while not nodes_to_visit.is_empty():
                 curr_node_prob, curr_node = nodes_to_visit.pop()
+                curr_node_lbl = curr_node.split(self.sep)[-1]
                 curr_node_prob = 1-curr_node_prob # has to do with heap implementation
                 if reject_thr != None:
                     if curr_node_prob >= reject_thr:
                         optimal_node_prob = curr_node_prob
-                        optimal_pred_path = pred_path
+                        optimal_pred_path = pred
                     else:
                         break
-                pred_path.append(curr_node)
                 # check if we are at a leaf node
-                if curr_node not in self.tree:
+                if curr_node_lbl not in self.tree:
+                    pred = curr_node
                     break
                 else:
-                    curr_node = self.tree[curr_node]
+                    curr_node_v = self.tree[curr_node_lbl]
                     # check if we have a node with single path
-                    if curr_node["estimator"] is not None:
+                    if curr_node_v["estimator"] is not None:
                         # get probabilities
-                        curr_node_ch_probs = self._predict_proba(curr_node["estimator"], x, scores)
+                        curr_node_ch_probs = self._predict_proba(curr_node_v["estimator"], x, scores)
                         # apply chain rule of probability
                         curr_node_ch_probs = curr_node_ch_probs*curr_node_prob
                         # add children to queue
                         for j,c in enumerate(curr_node["children"]):
                             prob_child = curr_node_ch_probs[:,j][0]
-                            nodes_to_visit.push(prob_child, c)
+                            nodes_to_visit.push(prob_child, curr_node+self.sep+c)
                     else:
-                        c = curr_node["children"][0]
-                        nodes_to_visit.push(curr_node_prob,c)
+                        c = curr_node_v["children"][0]
+                        nodes_to_visit.push(curr_node_prob,curr_node+self.sep+c)
             if reject_thr != None:
                 probs.append(optimal_node_prob)
                 preds.append(self.sep.join(optimal_pred_path))
             else:
                 probs.append(curr_node_prob)
-                preds.append(self.sep.join(pred_path))
+                preds.append(self.sep.join(pred))
         return ({i: [preds, probs]})
     
     def predict(self, X,reject_thr = None, greedy=True):
