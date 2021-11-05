@@ -223,30 +223,31 @@ class LCPN(BaseEstimator, ClassifierMixin):
             x = x.reshape(1,-1)
             nodes_to_visit = PriorityQueue()
             nodes_to_visit.push(1.,self.rlbl)
-            pred_path = []
+            pred = None
             while not nodes_to_visit.is_empty():
                 curr_node_prob, curr_node = nodes_to_visit.pop()
+                curr_node_lbl = curr_node.split(self.sep)[-1]
                 curr_node_prob = 1-curr_node_prob
-                pred_path.append(curr_node)
                 # check if we are at a leaf node
-                if curr_node not in self.tree:
+                if curr_node_lbl not in self.tree:
+                    pred = curr_node
                     break
                 else:
-                    curr_node = self.tree[curr_node]
+                    curr_node_v = self.tree[curr_node_lbl]
                     # check if we have a node with single path
-                    if curr_node["estimator"] is not None:
+                    if curr_node_v["estimator"] is not None:
                         # get probabilities
-                        curr_node_ch_probs = self._predict_proba(curr_node["estimator"], x, scores)
+                        curr_node_ch_probs = self._predict_proba(curr_node_v["estimator"], x, scores)
                         # apply chain rule of probability
                         curr_node_ch_probs = curr_node_ch_probs*curr_node_prob
                         # add children to queue
-                        for j,c in enumerate(curr_node["children"]):
+                        for j,c in enumerate(curr_node_v["children"]):
                             prob_child = curr_node_ch_probs[:,j][0]
-                            nodes_to_visit.push(prob_child, c)
+                            nodes_to_visit.push(prob_child, curr_node+self.sep+c)
                     else:
-                        c = curr_node["children"][0]
-                        nodes_to_visit.push(curr_node_prob,c)
-            preds.append(self.sep.join(pred_path))
+                        c = curr_node_v["children"][0]
+                        nodes_to_visit.push(curr_node_prob,curr_node+self.sep+c)
+            preds.append(pred)
         return {i: preds}
     
     def predict(self, X, bop=False):
