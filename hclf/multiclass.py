@@ -258,7 +258,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
                         # apply chain rule of probability
                         curr_node_ch_probs = curr_node_ch_probs*curr_node_prob
                         # add children to queue
-                        for j,c in enumerate(curr_node["children"]):
+                        for j,c in enumerate(curr_node_v["children"]):
                             prob_child = curr_node_ch_probs[:,j][0]
                             nodes_to_visit.push(prob_child, curr_node+self.sep+c)
                     else:
@@ -266,10 +266,10 @@ class LCPN(BaseEstimator, ClassifierMixin):
                         nodes_to_visit.push(curr_node_prob,curr_node+self.sep+c)
             if reject_thr != None:
                 probs.append(optimal_node_prob)
-                preds.append(self.sep.join(optimal_pred_path))
+                preds.append(optimal_pred_path)
             else:
                 probs.append(curr_node_prob)
-                preds.append(self.sep.join(pred))
+                preds.append(pred)
         return ({i: [preds, probs]})
     
     def predict(self, X,reject_thr = None, greedy=True):
