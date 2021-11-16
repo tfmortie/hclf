@@ -242,7 +242,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
                 if reject_thr != None:
                     if curr_node_prob >= reject_thr:
                         optimal_node_prob = curr_node_prob
-                        optimal_pred_path = pred
+                        optimal_pred_path = curr_node
                     else:
                         break
                 # check if we are at a leaf node
