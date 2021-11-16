@@ -226,7 +226,6 @@ class LCPN(BaseEstimator, ClassifierMixin):
         return ({i: [preds, probs]})
     
     def _predict_ngreedy(self, i, X, scores, reject_thr):
-        #NOTE: check if probabilities are still correct
         preds = []
         probs = []
         # run over all samples
