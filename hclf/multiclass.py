@@ -23,6 +23,8 @@ from sklearn.metrics import accuracy_score
 from joblib import Parallel, delayed, parallel_backend
 from collections import ChainMap
 
+import matplotlib.pyplot as plt
+
 
 class LCPN(BaseEstimator, ClassifierMixin):
     """Local classifier per parent node (LCPN) classifier.
@@ -313,9 +315,13 @@ class LCPN(BaseEstimator, ClassifierMixin):
         greedy: Boolean, default = True
              Returns Bayes-optimal solution when set to False. Returns
              solution by following the path of maximum probability in each node, otherwise.
+
         reject_thr : float, default=None
             If None, no rejection is implemented. if a float is given, classification occus until the level
             where probability prediction >= float.
+
+        find_thr: Boolean, default = False
+            If True, an accuracy - threshold graph will be constructed that will help you find an optimal rejection threshold
 
         Returns
         -------
@@ -362,7 +368,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
             for k in np.sort(list(dictio.keys())):
                 preds.extend(dictio[k][0])
                 probs.extend(dictio[k][1])
-            # in case of no predefined hierarchy, backtransform to originahttps://realpython.com/python-chainmap/#l labels
+            # in case of no predefined hierarchy, backtransform to original https://realpython.com/python-chainmap/#l labels
             if self.label_encoder_ is not None:
                 preds = self.label_encoder_.inverse_transform(
                     [p.split(self.sep)[-1] for p in preds]
@@ -568,3 +574,58 @@ class LCPN(BaseEstimator, ClassifierMixin):
                 )
             )
         return score_dict
+
+    def accuracy_score_reject(self, ytrue, ypred):
+        """_summary_
+
+        Args:
+            ytrue array-like of shape (n_samples,) or (n_samples, n_outputs):
+                The tue labels
+            ypred (array-like of shape (n_samples,) or (n_samples, n_outputs):
+                The predictions for the true labels
+        """
+        ytrue_adjusted = [
+            (";").join(ytrue[i].split(";")[0 : len(ypred[i].split(";"))])
+            if len(ypred[i].split(";")) < len(ytrue[i].split(";"))
+            else ytrue
+            for i in range(0, len(ytrue))
+        ]
+        return accuracy_score(ytrue_adjusted, ypred)
+
+    def find_rejection_thr_ll(
+        self, X, y, thr_step=0.05, thr_ll=True, save_fig=None, greedy=True
+    ):
+        """_summary_
+
+        Args:
+            X : array-like of shape (n_samples, n_features)
+                Test samples.
+            y : array-like of shape (n_samples,) or (n_samples, n_outputs)
+                True labels for X.
+            thr_step (float, optional):
+                Steps in between thresholds that are tested. Defaults to 0.05.
+            thr_ll (bool, optional):
+                If True the accuracy score is calculated o that an prediction is only correct if the lowest level of hierarchy is correct and the label is correct.
+                If false the prediction level is noot taken into account and only the correctness of the label is evaluated, regardless of its level of detail.
+                Defaults to True.
+            save_fig (str, optional):
+                The directory where the resulting graph is saved, if None the graph is not saved. Defaults to None.
+            greedy (bool, optional):
+                If True a greedy prediction approach is implemented, If False predictions are made based on the Bayesian optimal probabilities. Defaults to True.
+        """
+        # calculates the accuracy solely based on wether or not the lowest level of classification is achiieved and correct
+        thresholds = np.arange(0, 1, thr_step).tolist()
+        thresholds.append("None")
+        accuracies = []
+        for thresh in thresholds:
+            preds, probs = self.predict(X, thresh, greedy)
+            if thr_ll == True:
+                accuracies.append(accuracy_score(y, preds))
+            else:
+                accuracies.append(self.accuracy_score_reject(y, preds))
+        plt.plot(thresholds, accuracies, marker=".")
+        plt.ylabel("Accuracy score")
+        plt.xlabel("Rejection threshold")
+        if save_fig is not None:
+            plt.savefig(save_fig, bbox_inches="tight")
+        plt.show()
