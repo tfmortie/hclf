@@ -592,7 +592,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
         ]
         return accuracy_score(ytrue_adjusted, ypred)
 
-    def find_rejection_thr_ll(
+    def find_rejection_thr(
         self, X, y, thr_step=0.05, thr_ll=True, save_fig=None, greedy=True
     ):
         """_summary_
