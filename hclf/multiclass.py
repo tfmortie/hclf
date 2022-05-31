@@ -31,18 +31,13 @@ class LCPN(BaseEstimator, ClassifierMixin):
     estimator : scikit-learn base estimator
         Represents the base estimator for the classification task in each node.
     sep : str, default=';'
-        Path separator used for processing the hierarchical labels. If set to None,
-        a random hierarchy is created and provided flat labels are converted,
-        accordingly.
+        Path separator used for processing the hierarchical labels. If set to None, a random hierarchy is created and provided flat labels are converted, accordingly.
     k : tuple of int, default=(2,2)
-        Min and max number of children a node can have in the random generated tree. Is ignored when
-        sep is not set to None.
+        Min and max number of children a node can have in the random generated tree. Is ignored when sep is not set to None.
     n_jobs : int, default=None
-        The number of jobs to run in parallel. Currently this applies to fit, 
-        and predict.  
+        The number of jobs to run in parallel. Currently this applies to fit, and predict.  
     random_state : RandomState or an int seed, default=None
-        A random number generator instance to define the state of the
-        random generator.
+        A random number generator instance to define the state of the random generator.
     verbose : int, default=0
         Controls the verbosity: the higher, the more messages
 
@@ -258,8 +253,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
         X : {array-like, sparse matrix}, shape (n_samples, n_features)
             Input samples.
         bop : boolean, default=False
-            Returns Bayes-optimal solution when set to True. Returns
-            solution by following the path of maximum probability in each node, otherwise.
+            Returns Bayes-optimal solution when set to True. Returns solution by following the path of maximum probability in each node, otherwise.
 
         Returns
         -------
@@ -336,8 +330,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
         Returns
         -------
         probs : ndarray
-            Returns the probability of the sample for each class in the model,
-            where classes are ordered as they are in self.classes_.
+            Returns the probability of the sample for each class in the model, where classes are ordered as they are in self.classes_.
         """
         # check input
         X = check_array(X)
