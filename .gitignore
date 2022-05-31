@@ -129,7 +129,5 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# hclf
-main.py
-main.sh
-*.txt
+# Files related to experiments and other test code
+files/

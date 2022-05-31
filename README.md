@@ -4,6 +4,7 @@
 
 ## TODOs
 
+* Include utility-based set-valued prediction functionality
 * Finalize LCN for multi-label classification 
 
 ## Dependencies 

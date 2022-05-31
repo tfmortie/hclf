@@ -42,7 +42,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
         and predict.  
     random_state : RandomState or an int seed, default=None
         A random number generator instance to define the state of the
-        random permutations generator.
+        random generator.
     verbose : int, default=0
         Controls the verbosity: the higher, the more messages
 
