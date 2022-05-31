@@ -4,7 +4,6 @@ Author: Thomas Mortier
 Date: Feb. 2021
 
 TODO: 
-    * Add option for set-valued prediction
     * Feature: allow tree structures with non-unique node labels (currently, warning is thrown)
 """
 import time
