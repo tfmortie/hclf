@@ -4,6 +4,7 @@ Author: Thomas Mortier
 Date: Feb. 2021
 
 TODO: 
+    * Fix issue when non-hierarchical labels are provided to LCPN (see fit())
     * Feature: allow tree structures with non-unique node labels (currently, warning is thrown)
 """
 import time
