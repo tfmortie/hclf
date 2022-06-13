@@ -138,14 +138,6 @@ class LCPN(BaseEstimator, ClassifierMixin):
         self.n_outputs_ = 1
         self.X_ = X
         self.y_ = y
-        # store label of root node
-        self.rlbl = self.y_[0].split(self.sep)[0]
-        # init tree
-        self.tree = {self.rlbl: {
-                "lbl": self.rlbl,
-                "estimator": None,
-                "children": [],
-                "parent": None}}
         # check if sep is None or str
         if type(self.sep) != str and self.sep is not None:
             raise TypeError("Parameter sep must be of type str or None.")
@@ -160,6 +152,14 @@ class LCPN(BaseEstimator, ClassifierMixin):
                 self.y_ = self.label_encoder_.fit_transform(self.y_) 
             else:
                 self.label_encoder_ = None
+            # store label of root node
+            self.rlbl = self.y_[0].split(self.sep)[0]
+            # init tree
+            self.tree = {self.rlbl: {
+                    "lbl": self.rlbl,
+                    "estimator": None,
+                    "children": [],
+                    "parent": None}}
             for lbl in self.y_:
                 self._add_path(lbl.split(self.sep))
             # now proceed to fitting
@@ -324,8 +324,6 @@ class LCPN(BaseEstimator, ClassifierMixin):
         ----------
         X : {array-like, sparse matrix}, shape (n_samples, n_features)
             Input samples.
-        avg : boolean, default=True
-            Return model average when true, and array of probability estimates otherwise.
 
         Returns
         -------
