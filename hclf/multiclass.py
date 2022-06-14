@@ -68,14 +68,12 @@ class LCPN(BaseEstimator, ClassifierMixin):
         add_node = path[1]
         # check if add_node is already registred
         if add_node not in self.tree:
-            # check if add_node is terminal
-            if len(path) > 2:
-                # register add_node to the tree
-                self.tree[add_node] = {
-                     "lbl": add_node,
-                     "estimator": None,
-                     "children": [],
-                     "parent": current_node} 
+            # register add_node to the tree
+            self.tree[add_node] = {
+                    "lbl": add_node,
+                    "estimator": None,
+                    "children": [],
+                    "parent": current_node} 
             # add add_node to current_node's children (if not yet in list of children)
             if add_node not in self.tree[current_node]["children"]:
                 self.tree[current_node]["children"].append(add_node)
@@ -84,7 +82,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
                 self.tree[current_node]["estimator"] = clone(self.estimator)
         else:
             # check for duplicate node labels 
-            if self.tree[add_node]["parent"] != current_node:
+            if self.tree[add_node]["parent"] != current_node and current_node != add_node:
                 warnings.warn("Duplicate node label {0} detected in hierarchy with parents {1}, {2}!".format(add_node, self.tree[add_node]["parent"], current_node), FitFailedWarning)
         # process next couple of nodes in path
         if len(path) > 2:
@@ -163,11 +161,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
                     "parent": None}}
             for lbl in self.y_:
                 path = lbl.split(self.sep)
-                if path[-1] == path[-2]:
-                    # cut single paths at bottom of hierarchy
-                    self._add_path(path[:-1])
-                else:
-                    self._add_path(path)
+                self._add_path(path)
             # now proceed to fitting
             with parallel_backend("loky"):
                 fitted_tree = Parallel(n_jobs=self.n_jobs)(delayed(self._fit_node)(self.tree[node]) for node in self.tree)
@@ -181,7 +175,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
             curr_node = nodes_to_visit.pop()
             for c in curr_node["children"]:
                 # check if child is leaf node 
-                if c not in self.tree:
+                if len(self.tree[c]["children"]) == 0:
                     cls.append(c)
                 else:
                     # add child to nodes_to_visit
@@ -230,7 +224,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
                 curr_node_lbl = curr_node.split(self.sep)[-1]
                 curr_node_prob = 1-curr_node_prob
                 # check if we are at a leaf node
-                if curr_node_lbl not in self.tree:
+                if len(self.tree[curr_node_lbl]["children"]) == 0:
                     pred = curr_node
                     break
                 else:
@@ -362,7 +356,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
                     for i,c in enumerate(curr_node["children"]):
                         # check if child is leaf node 
                         prob_child = curr_node_probs[:,i].reshape(-1,1)
-                        if c not in self.tree:
+                        if len(self.tree[c]["children"]) == 0:
                             probs.append(prob_child)
                         else:
                             # add child to nodes_to_visit
@@ -370,7 +364,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
                 else:
                     c = curr_node["children"][0]
                     # check if child is leaf node 
-                    if c not in self.tree:
+                    if len(self.tree[c]["children"]) == 0:
                         probs.append(parent_prob)
                     else:
                         # add child to nodes_to_visit
