@@ -131,3 +131,6 @@ dmypy.json
 
 # Files related to experiments and other test code
 files/
+
+# Notebooks
+*.ipynb

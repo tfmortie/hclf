@@ -99,11 +99,12 @@ class LCPN(BaseEstimator, ClassifierMixin):
             sel_ind = []
             for i,y in enumerate(self.y_):
                 if node["lbl"] in y.split(self.sep):
-                     # need to include current label and sample (as long as it's "complete")
-                     y_split = y.split(self.sep)
-                     if y_split.index(node["lbl"]) < len(y_split)-1:
-                         y_transform.append(y_split[y_split.index(node["lbl"])+1])
-                         sel_ind.append(i)
+                    # need to include current label and sample (as long as it's "complete")
+                    y_split = y.split(self.sep)
+                    y_idx = len(y_split)-y_split[::-1].index(node["lbl"])-1
+                    if y_idx < len(y_split)-1:
+                        y_transform.append(y_split[y_idx+1])
+                        sel_ind.append(i)
             X_transform = self.X_[sel_ind,:]
             node["estimator"].fit(X_transform, y_transform)
             if self.verbose >= 2:
@@ -161,7 +162,12 @@ class LCPN(BaseEstimator, ClassifierMixin):
                     "children": [],
                     "parent": None}}
             for lbl in self.y_:
-                self._add_path(lbl.split(self.sep))
+                path = lbl.split(self.sep)
+                if path[-1] == path[-2]:
+                    # cut single paths at bottom of hierarchy
+                    self._add_path(path[:-1])
+                else:
+                    self._add_path(path)
             # now proceed to fitting
             with parallel_backend("loky"):
                 fitted_tree = Parallel(n_jobs=self.n_jobs)(delayed(self._fit_node)(self.tree[node]) for node in self.tree)
