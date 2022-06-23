@@ -587,7 +587,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
         ytrue_adjusted = [
             (";").join(ytrue[i].split(";")[0 : len(ypred[i].split(";"))])
             if len(ypred[i].split(";")) < len(ytrue[i].split(";"))
-            else ytrue
+            else ytrue[i]
             for i in range(0, len(ytrue))
         ]
         return accuracy_score(ytrue_adjusted, ypred)
@@ -613,7 +613,7 @@ class LCPN(BaseEstimator, ClassifierMixin):
             greedy (bool, optional):
                 If True a greedy prediction approach is implemented, If False predictions are made based on the Bayesian optimal probabilities. Defaults to True.
         """
-        # calculates the accuracy solely based on wether or not the lowest level of classification is achiieved and correct
+        # calculates the accuracy solely based on wether or not the lowest level of classification is achieved and correct
         thresholds = np.arange(0, 1, thr_step).tolist()
         thresholds.append("None")
         accuracies = []
