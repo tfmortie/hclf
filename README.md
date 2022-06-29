@@ -1,6 +1,8 @@
-# Hierarchical Classification
+# [DEPRECATED] Hierarchical Classification
 
 **hclf** is a Python module for hierarchical classification, built on top of scikit-learn. Currently, there is support for the following models: local classifier per parent node (LCPN) for multi-class classification and local classifier per node (LCN) for multi-label classification.
+
+**Deprecated:** we refer to a more general package [`tfmortie/setvaluedprediction'](https://github.com/tfmortie/setvaluedprediction), which also allows for abstention and set-valued predictions. 
 
 ## TODOs
 
