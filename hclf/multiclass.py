@@ -24,6 +24,7 @@ from joblib import Parallel, delayed, parallel_backend
 from collections import ChainMap
 
 import matplotlib.pyplot as plt
+import random
 
 
 class LCPN(BaseEstimator, ClassifierMixin):
@@ -592,8 +593,25 @@ class LCPN(BaseEstimator, ClassifierMixin):
         ]
         return accuracy_score(ytrue_adjusted, ypred)
 
+    def find_percentage_reject(self, ytrue, ypred):
+        count = 0
+        for i in range(0, len(ytrue)):
+            len_pred = len(ypred[i].split(";"))
+            len_ytrue = len(ytrue[i].split(";"))
+            if len_ytrue > len_pred:
+                count += 1
+
+        return (count / len(ytrue)) * 100
+
     def find_rejection_thr(
-        self, X, y, thr_step=0.05, thr_ll=True, save_fig=None, greedy=True
+        self,
+        X,
+        y,
+        thr_step=0.05,
+        thr_ll=True,
+        save_fig=None,
+        save_fig_perc=False,
+        greedy=True,
     ):
         """_summary_
 
@@ -615,17 +633,32 @@ class LCPN(BaseEstimator, ClassifierMixin):
         """
         # calculates the accuracy solely based on wether or not the lowest level of classification is achieved and correct
         thresholds = np.arange(0, 1, thr_step).tolist()
+        # thresholds = thresholds[::-1]
         thresholds.append("None")
         accuracies = []
+        percentages = []
         for thresh in thresholds:
             preds, probs = self.predict(X, thresh, greedy)
             if thr_ll == True:
                 accuracies.append(accuracy_score(y, preds))
+                if save_fig_perc is not None:
+                    percentages.append(self.find_percentage_reject(y, preds))
             else:
                 accuracies.append(self.accuracy_score_reject(y, preds))
+                if save_fig_perc is not None:
+                    percentages.append(self.find_percentage_reject(y, preds))
+        fig1 = plt.figure(i)
         plt.plot(thresholds, accuracies, marker=".")
         plt.ylabel("Accuracy score")
         plt.xlabel("Rejection threshold")
         if save_fig is not None:
             plt.savefig(save_fig, bbox_inches="tight")
+
+        i += 1
+        fig2 = plt.figure(1)
+        plt.plot(thresholds, percentages, marker=".")
+        plt.ylabel("Precentage rejected scores")
+        plt.xlabel("Rejection threshold")
+        if save_fig_perc is not None:
+            plt.savefig(save_fig_perc, bbox_inches="tight")
         plt.show()
