@@ -7,6 +7,7 @@ TODO:
     * Add option for set-valued prediction
     * Feature: allow tree structures with non-unique node labels (currently, warning is thrown)
 """
+import csv
 import time
 import warnings
 
@@ -580,9 +581,9 @@ class LCPN(BaseEstimator, ClassifierMixin):
         """_summary_
 
         Args:
-            ytrue array-like of shape (n_samples,) or (n_samples, n_outputs):
+            ytrue list of shape (n_samples,) or (n_samples, n_outputs):
                 The tue labels
-            ypred (array-like of shape (n_samples,) or (n_samples, n_outputs):
+            ypred list of shape (n_samples,) or (n_samples, n_outputs):
                 The predictions for the true labels
         """
         ytrue_adjusted = [
@@ -603,6 +604,101 @@ class LCPN(BaseEstimator, ClassifierMixin):
 
         return (count / len(ytrue)) * 100
 
+    def Accuracy_Rejection_noReject(
+        self, X, y, fig_title, step=0.01, save_results=None, save_fig_title=None
+    ):
+        """_summary_
+
+        Plots and or saves accuracy scores based on rejection thresholds.
+        Here rejection is not explicitely performed. Rejected labels are just not included in the analysis
+
+        Parameters
+        ----------
+        X : test data
+        y : test labels
+        fig_title : Title of the plot
+        step : float, optional
+            steps in between rejection thresholds, by default 0.01
+        save_results : _type_, optional
+            by default None
+        save_fig_title : _type_, optional
+            by default None
+        """
+        step = 0.01
+        steps = np.arange(0, 1, step)
+        acc = np.zeros(len(steps))
+        predicted, probs = self.predict(X)
+        for i in range(0, len(steps)):
+            t = steps[i]
+            idx_keep = [i > t for i in probs]
+            acc[i] = accuracy_score(y[idx_keep], np.array(predicted)[idx_keep])
+
+        plt.scatter(steps, acc)
+        plt.ylim(0, 1)
+        plt.xticks("Rejection Threshold")
+        plt.yticks("Accuracy score")
+        plt.title(fig_title)
+        if save_fig_title is not None:
+            plt.savefig(save_fig_title, bbox_inches="tight")
+
+        if save_results is not None:
+            with open(save_results, "w") as f:
+                writer = csv.writer(f)
+                writer.writerow(acc)
+                writer.writerow(steps)
+
+    def Accuracy_Rejection(
+        self,
+        X,
+        y,
+        fig_title,
+        step=0.01,
+        greedy_=True,
+        save_results=None,
+        save_fig_title=None,
+    ):
+        """_summary_
+
+        Plots and or saves accuracy scores based on rejection thresholds.
+        Here rejection is not explicitely performed. Rejected labels are just not included in the analysis
+
+        Parameters
+        ----------
+        X : test data
+        y : test labels
+        fig_title : Title of the plot
+        greedy_: Boolean, optional
+        step : float, optional
+            steps in between rejection thresholds, by default 0.01
+        save_results : _type_, optional
+            by default None
+        save_fig_title : _type_, optional
+            by default None
+        """
+        step = 0.01
+        steps = np.arange(0, 1, step)
+        acc = np.zeros(len(steps))
+
+        for i in range(0, len(steps)):
+            t = steps[i]
+            predicted, probs = self.predict(X, reject_thr=t, greedy=greedy_)
+            acc[i] = self.accuracy_score_reject(y, predicted)
+
+        plt.scatter(steps, acc)
+        plt.ylim(0, 1)
+        plt.xticks("Rejection Threshold")
+        plt.yticks("Accuracy score")
+        plt.title(fig_title)
+        if save_fig_title is not None:
+            plt.savefig(save_fig_title, bbox_inches="tight")
+
+        if save_results is not None:
+            with open(save_results, "w") as f:
+                writer = csv.writer(f)
+                writer.writerow(acc)
+                writer.writerow(steps)
+
+    ## Recoded this above here
     def find_rejection_thr(
         self,
         X,
@@ -631,7 +727,6 @@ class LCPN(BaseEstimator, ClassifierMixin):
             greedy (bool, optional):
                 If True a greedy prediction approach is implemented, If False predictions are made based on the Bayesian optimal probabilities. Defaults to True.
         """
-        # calculates the accuracy solely based on wether or not the lowest level of classification is achieved and correct
         thresholds = np.arange(0, 1, thr_step).tolist()
         # thresholds = thresholds[::-1]
         thresholds.append("None")
